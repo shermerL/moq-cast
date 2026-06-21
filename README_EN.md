@@ -25,18 +25,37 @@ This project is built on the MoQ implementation and Kotlin/Android bindings prov
 
 ## Verified Environment
 
-The following version combination has been verified for publishing and subscribing interoperability between Android and the Web:
+The following version combination has been verified for publishing and subscribing interoperability across Android, the Web, and the relay server.
 
-| Component                    | Version  | Purpose                                                 |
-| ---------------------------- | -------- | ------------------------------------------------------- |
-| `dev.moq:moq`                | `0.2.18` | MoQ, Hang, and UniFFI bindings for Android              |
-| `kotlinx-coroutines-android` | `1.9.0`  | Coroutine support for Android                           |
-| `@moq/watch`                 | `0.2.14` | Web client for watching broadcasts published by Android |
-| `@moq/publish`               | `0.2.10` | Web client for publishing broadcasts watched by Android |
-| `@moq/hang`                  | `0.2.7`  | Hang catalog and media container support for the Web    |
-| `@moq/net`                   | `0.1.2`  | MoQ networking layer for the Web                        |
+### Android Dependencies
 
-`@moq/watch`, `@moq/publish`, `@moq/hang`, and `@moq/net` are used for Web interoperability testing. They are not direct dependencies of the Android APK. This version combination has been verified to work correctly. Newer upstream versions are available, but this project currently stays on the verified configuration.
+The following dependencies are packaged directly into the Android APK:
+
+| Component | Version | Purpose |
+| --- | --- | --- |
+| `dev.moq:moq` | `0.2.18` | MoQ, Hang, and UniFFI bindings for Android |
+| `kotlinx-coroutines-android` | `1.9.0` | Coroutine support for Android |
+
+### Web Interoperability Dependencies
+
+| Component | Version | Purpose |
+| --- | --- | --- |
+| `@moq/watch` | `0.2.14` | Subscribe to broadcasts on the Web |
+| `@moq/publish` | `0.2.10` | Publish broadcasts from the Web |
+| `@moq/hang` | `0.2.7` | Hang catalog and media container support for the Web |
+| `@moq/net` | `0.1.2` | MoQ networking layer for the Web |
+
+These packages are used for Web interoperability testing. They are not direct dependencies of the Android APK.
+
+### Relay Server
+
+| Item | Verified configuration |
+| --- | --- |
+| Deployment | Docker |
+| Docker image | `kixelated/moq-relay` |
+| Protocol version | `moq-lite-03` |
+
+This project currently stays on the verified configuration. If a newer version is confirmed to work correctly, an upgrade will be considered after compatibility testing is complete.
 
 ## Build
 

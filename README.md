@@ -25,18 +25,37 @@
 
 ## 已验证环境
 
-本项目当前使用以下版本组合完成 Android 与 Web 端的发布、订阅互操作验证：
+本项目当前使用以下版本组合完成 Android、Web 与 relay 服务器之间的发布、订阅互操作验证。
 
-| 组件                         | 版本     | 用途                                  |
-| ---------------------------- | -------- | ------------------------------------- |
-| `dev.moq:moq`                | `0.2.18` | Android 端 MoQ、Hang 和 UniFFI 绑定   |
-| `kotlinx-coroutines-android` | `1.9.0`  | Android 协程支持                      |
-| `@moq/watch`                 | `0.2.14` | Web 端订阅 Android 发布的 broadcast   |
-| `@moq/publish`               | `0.2.10` | Web 端发布供 Android 订阅的 broadcast |
-| `@moq/hang`                  | `0.2.7`  | Web 端 Hang catalog 和媒体容器        |
-| `@moq/net`                   | `0.1.2`  | Web 端 MoQ 网络层                     |
+### Android 依赖
 
-`@moq/watch`、`@moq/publish`、`@moq/hang` 和 `@moq/net` 用于 Web 端联调，不是 Android APK 的直接依赖。当前版本组合已经验证可以正常使用。上游已有更新版本，本项目暂时保持已验证配置。
+以下依赖会直接打包进 Android APK：
+
+| 组件                         | 版本     | 用途                                |
+| ---------------------------- | -------- | ----------------------------------- |
+| `dev.moq:moq`                | `0.2.18` | Android 端 MoQ、Hang 和 UniFFI 绑定 |
+| `kotlinx-coroutines-android` | `1.9.0`  | Android 协程支持                    |
+
+### Web 联调依赖
+
+| 组件           | 版本     | 用途                                  |
+| -------------- | -------- | ------------------------------------- |
+| `@moq/watch`   | `0.2.14` | Web 端订阅 broadcast           |
+| `@moq/publish` | `0.2.10` | Web 端发布 broadcast           |
+| `@moq/hang`    | `0.2.7`  | Web 端 Hang catalog 和媒体容器        |
+| `@moq/net`     | `0.1.2`  | Web 端 MoQ 网络层                     |
+
+这些包用于 Web 端联调，不是 Android APK 的直接依赖。
+
+### Relay 服务器
+
+| 项目 | 已验证配置 |
+| --- | --- |
+| 部署方式 | Docker |
+| Docker 镜像 | `kixelated/moq-relay` |
+| 协议版本 | `moq-lite-03` |
+
+本项目暂时保持已验证配置。如有更新版本验证可以正常使用，后续会考虑完成兼容性测试后安排升级。
 
 ## 构建
 
