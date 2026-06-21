@@ -1,0 +1,7 @@
+package com.example.moqandroid.playback
+
+const val VIDEO_RENDER_EARLY_US = 15_000L
+const val VIDEO_DROP_LATE_US = 250_000L
+const val VIDEO_MAX_SLEEP_MS = 20L
+const val PLAYBACK_HEAD_POSITION_WRAP = 1L shl 32
+const val PLAYBACK_HEAD_POSITION_MASK = PLAYBACK_HEAD_POSITION_WRAP - 1

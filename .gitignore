@@ -1,0 +1,30 @@
+# Android Studio
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+**/build/
+
+# Local machine configuration
+local.properties
+.DS_Store
+
+# Native builds
+.cxx/
+.externalNativeBuild/
+
+# Build artifacts
+*.apk
+*.aab
+captures/
+
+# Signing and private configuration
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+secrets.properties
+.env
+.env.*
+!.env.example
