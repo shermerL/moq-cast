@@ -24,7 +24,7 @@
 - Android Studio
 - JDK 17
 - Android SDK 33
-- Android 10（API 29）或更高版本
+- Android 8.0（API 26）或更高版本
 - 可访问的 MoQ relay （需自己部署moq-relay服务）
 
 ## 已验证环境

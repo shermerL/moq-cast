@@ -24,7 +24,7 @@ Supported interoperability:
 - Android Studio
 - JDK 17
 - Android SDK 33
-- Android 10 (API 29) or later
+- Android 8.0 (API 26) or later
 - An accessible MoQ relay (you need to deploy a `moq-relay` service)
 
 ## Verified Environment

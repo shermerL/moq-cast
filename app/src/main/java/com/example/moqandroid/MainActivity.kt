@@ -228,9 +228,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
+        val landscape = sourceWidth >= sourceHeight
+        val maxWidth = if (landscape) MAX_PUBLISH_LONG_EDGE else MAX_PUBLISH_SHORT_EDGE
+        val maxHeight = if (landscape) MAX_PUBLISH_SHORT_EDGE else MAX_PUBLISH_LONG_EDGE
         val scale = minOf(
-            MAX_PUBLISH_WIDTH.toFloat() / sourceWidth,
-            MAX_PUBLISH_HEIGHT.toFloat() / sourceHeight,
+            maxWidth.toFloat() / sourceWidth,
+            maxHeight.toFloat() / sourceHeight,
             1f,
         )
         val width = (sourceWidth * scale).toInt().roundDownToEven().coerceAtLeast(2)
@@ -383,7 +386,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         private const val REQUEST_SCREEN_CAPTURE = 1001
         private const val REQUEST_NOTIFICATIONS = 1002
-        private const val MAX_PUBLISH_WIDTH = 1280
-        private const val MAX_PUBLISH_HEIGHT = 720
+        private const val MAX_PUBLISH_LONG_EDGE = 1920
+        private const val MAX_PUBLISH_SHORT_EDGE = 1080
     }
 }
