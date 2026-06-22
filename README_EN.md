@@ -4,18 +4,20 @@ English | [简体中文](README.md)
 
 [![Android CI](https://github.com/shermerL/moq-screencast/actions/workflows/android.yml/badge.svg)](https://github.com/shermerL/moq-screencast/actions/workflows/android.yml)
 
-A native Android sample project for learning and evaluating [Media over QUIC](https://moq.dev/). The app can subscribe to and play a broadcast through a MoQ relay. It can also capture an Android screen, encode it as H.264, and publish it to a specified broadcast.
+The primary use case of this project is screen sharing across networks. Deploying your own `moq-relay` service can provide connectivity in complex NAT environments. It is a native Android application built on [Media over QUIC](https://moq.dev/). The app captures the Android screen, encodes it as H.264, and publishes it to a specified broadcast. Other clients can connect to the `moq-relay` to subscribe and play the stream. MoQ is not limited to screen sharing. Visit [Media over QUIC](https://moq.dev/) to learn more.
 
-This project is built on the MoQ implementation and Kotlin/Android bindings provided by [moq-dev/moq](https://github.com/moq-dev/moq). Thanks to Luke Curley and all `moq-dev` contributors for their continued work on the MoQ protocol implementation, native bindings, and open source ecosystem.
+Supported interoperability:
 
-> This project is still experimental and is intended for protocol learning and functional evaluation.
+- Android -> Android
+- Android -> Web
+- Web -> Android
+
+> This project is still experimental and is intended for functional evaluation.
 
 ## Features
 
-- Configure and persist a MoQ relay URL
-- Enter a broadcast name and subscribe to it
-- Decode and play video with the Android `MediaCodec` hardware decoder
-- Encode the Android screen as H.264 with `MediaCodec` and publish it
+- Start screen sharing
+- Subscribe to and play video streams
 
 ## Requirements
 
@@ -38,7 +40,7 @@ The following dependencies are packaged directly into the Android APK:
 | `dev.moq:moq` | `0.2.18` | MoQ, Hang, and UniFFI bindings for Android |
 | `kotlinx-coroutines-android` | `1.9.0` | Coroutine support for Android |
 
-### Web Interoperability Dependencies
+### Web Dependencies
 
 | Component | Version | Purpose |
 | --- | --- | --- |
@@ -119,9 +121,8 @@ This project uses the Kotlin/Android bindings provided by `moq-dev/moq`:
 
 - Maven coordinates: `dev.moq:moq:0.2.18`
 - Source: [github.com/moq-dev/moq](https://github.com/moq-dev/moq)
-- Authors: Luke Curley and other MoQ contributors
 - License: [Apache License 2.0](https://github.com/moq-dev/moq/blob/main/LICENSE-APACHE) or [MIT License](https://github.com/moq-dev/moq/blob/main/LICENSE-MIT)
 
-The `dev.moq:moq` package includes the Rust implementation, UniFFI-generated Kotlin interfaces, and Android native dynamic libraries. This project is just an independently developed Android sample.
+The `dev.moq:moq` package includes the Rust implementation, UniFFI-generated Kotlin interfaces, and Android native dynamic libraries. This project is an independently developed Android sample based on the MoQ implementation and Kotlin/Android bindings provided by [moq-dev/moq](https://github.com/moq-dev/moq). Thanks to Luke Curley and all `moq-dev` contributors for their continued work on the MoQ protocol implementation, native bindings, and open source ecosystem.
 
-When redistributing this project's source code or APK, retain the license and copyright notices for both this project and `moq-dev/moq`.
+When redistributing this project's source code or APK, retain the license and copyright notices for `moq-dev/moq`.

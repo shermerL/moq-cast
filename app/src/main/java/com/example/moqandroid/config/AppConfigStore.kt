@@ -2,6 +2,7 @@ package com.example.moqandroid.config
 
 import android.content.Context
 
+// Optional default for local development. Leave empty to require setup on first launch.
 const val DEFAULT_RELAY_URL = ""
 
 class AppConfigStore(context: Context) {
