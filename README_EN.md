@@ -37,7 +37,7 @@ The following dependencies are packaged directly into the Android APK:
 
 | Component | Version | Purpose |
 | --- | --- | --- |
-| `dev.moq:moq` | `0.2.18` | MoQ, Hang, and UniFFI bindings for Android |
+| `dev.moq:moq` | `0.2.24` | MoQ, Hang, and UniFFI bindings for Android |
 | `kotlinx-coroutines-android` | `1.9.0` | Coroutine support for Android |
 
 ### Web Dependencies
@@ -119,7 +119,7 @@ The underlying MoQ networking functionality is provided by `dev.moq:moq`. This d
 
 This project uses the Kotlin/Android bindings provided by `moq-dev/moq`:
 
-- Maven coordinates: `dev.moq:moq:0.2.18`
+- Maven coordinates: `dev.moq:moq:0.2.24`
 - Source: [github.com/moq-dev/moq](https://github.com/moq-dev/moq)
 - License: [Apache License 2.0](https://github.com/moq-dev/moq/blob/main/LICENSE-APACHE) or [MIT License](https://github.com/moq-dev/moq/blob/main/LICENSE-MIT)
 

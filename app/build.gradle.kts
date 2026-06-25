@@ -28,7 +28,7 @@ kotlin {
 }
 
 dependencies {
-    // Latest available on Maven Central: 0.2.21.
-    implementation("dev.moq:moq:0.2.18")
+    // Latest available on Maven Central: 0.2.24.
+    implementation("dev.moq:moq:0.2.24")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
