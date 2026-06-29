@@ -40,11 +40,12 @@ data class PlayableVideoInfo(
     val mime: String,
     val preference: CodecPreference,
     val audioTrackName: String?,
+    val audioDescription: String?,
     val displayWidth: Int?,
     val displayHeight: Int?,
 ) {
     fun describe(): String {
-        val audio = audioTrackName?.let { "\naudio=$it" } ?: "\naudio=none"
+        val audio = audioDescription?.let { "\naudio=$it" } ?: "\naudio=none"
         val display = if (displayWidth != null && displayHeight != null) {
             "\ndisplay=${displayWidth}x$displayHeight"
         } else {
@@ -75,6 +76,10 @@ data class PlayableAudioTrack(
 ) {
     val bytesPerSampleFrame: Int = channelCount * 2
     val bytesPerSecond: Int = sampleRate * channelCount * 2
+
+    fun describe(): String {
+        return "$name codec=${audio.codec} ${sampleRate}Hz ${channelCount}ch"
+    }
 }
 
 fun MoqAudio.toPlayableTrack(name: String): PlayableAudioTrack? {

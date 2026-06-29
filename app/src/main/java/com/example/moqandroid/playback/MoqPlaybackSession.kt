@@ -77,6 +77,7 @@ class MoqPlaybackSession(
                         mime = selectedVideo.mime,
                         preference = codecPreference,
                         audioTrackName = audioTrack?.name,
+                        audioDescription = audioTrack?.describe(),
                         displayWidth = catalog.displayWidthFor(selectedVideo.video),
                         displayHeight = catalog.displayHeightFor(selectedVideo.video),
                     )

@@ -1,7 +1,6 @@
 package com.example.moqandroid
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -11,7 +10,11 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.View
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.moqandroid.catalog.CodecPreference
 import com.example.moqandroid.config.AppConfigStore
 import com.example.moqandroid.playback.MoqPlaybackSession
@@ -19,9 +22,21 @@ import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.MoqScreenPublishSession
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.ScreenCaptureService
+import com.example.moqandroid.publish.ScreenPublishConfig
 import com.example.moqandroid.publish.ScreenVideoConfig
-import com.example.moqandroid.ui.ConfigScreen
-import com.example.moqandroid.ui.MainScreen
+import com.example.moqandroid.publish.SystemAudioConfig
+import com.example.moqandroid.ui.app.FirstRunConfig
+import com.example.moqandroid.ui.app.MainTabsActions
+import com.example.moqandroid.ui.app.MainTabsState
+import com.example.moqandroid.ui.app.MainTabs
+import com.example.moqandroid.ui.app.PublishPanelActions
+import com.example.moqandroid.ui.app.PublishPanelState
+import com.example.moqandroid.ui.app.RelayConfigActions
+import com.example.moqandroid.ui.app.RelayConfigUiState
+import com.example.moqandroid.ui.app.RelaySettings
+import com.example.moqandroid.ui.app.RelaySettingsActions
+import com.example.moqandroid.ui.app.SubscribePanelActions
+import com.example.moqandroid.ui.app.SubscribePanelState
 import com.example.moqandroid.ui.PlayerScreen
 import java.lang.SecurityException
 import java.net.URI
@@ -35,25 +50,30 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-class MainActivity : Activity(), SurfaceHolder.Callback {
+class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     private val logTag = "MoqAndroid"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private lateinit var configStore: AppConfigStore
     private lateinit var projectionManager: MediaProjectionManager
-    private var relayUrl = ""
+    private var relayUrl by mutableStateOf("")
+    private var configRelayUrl by mutableStateOf("")
+    private var settingsRelayUrl by mutableStateOf("")
+    private var publishBroadcastName by mutableStateOf("bbb.hang")
+    private var subscribeBroadcastName by mutableStateOf("bbb.hang")
     private var broadcastName = "bbb.hang"
     private var playbackJob: Job? = null
     private var publishJob: Job? = null
     private var playerBroadcast: String? = null
     private var playbackSessionId = 0
     private var publishSessionId = 0
-    private var configStatusMessage = "Configure relay before subscribing."
-    private var mainStatusMessage = "Enter a broadcast name, then subscribe."
+    private var currentScreen by mutableStateOf(AppScreen.Config)
+    private var configStatusMessage by mutableStateOf("Relay URL is required before using MoQScreenCast.")
+    private var publishStatusMessage by mutableStateOf("Ready to publish screen.")
+    private var subscribeStatusMessage by mutableStateOf("Ready to subscribe.")
+    private var settingsStatusMessage by mutableStateOf("Update relay URL.")
+    private var includeSystemAudio by mutableStateOf(true)
 
-    private lateinit var status: TextView
-    private var configScreen: ConfigScreen? = null
-    private var mainScreen: MainScreen? = null
     private var playerScreen: PlayerScreen? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,7 +81,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         configStore = AppConfigStore(this)
         projectionManager = getSystemService(MediaProjectionManager::class.java)
         relayUrl = configStore.loadRelayUrl()
-        showConfigUi()
+        configRelayUrl = relayUrl
+        settingsRelayUrl = relayUrl
+        currentScreen = if (relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
+        setComposeContent()
     }
 
     private fun showConfigUi(message: String = configStatusMessage) {
@@ -69,46 +92,89 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         stopPlayback(message)
         playerBroadcast = null
         configStatusMessage = message
-
-        val screen = ConfigScreen(
-            activity = this,
-            initialStatus = message,
-            initialRelayUrl = relayUrl,
-            onContinue = ::saveConfigFromInput,
-        )
-        configScreen = screen
-        mainScreen = null
         playerScreen = null
-        status = screen.status
-        setContentView(screen.root)
-        screen.requestInitialFocus()
+        currentScreen = AppScreen.Config
+        setComposeContent()
     }
 
-    private fun showMainUi(message: String = mainStatusMessage) {
+    private fun showMainUi() {
         exitFullscreen()
-        stopPlayback(message)
+        stopPlayback("Disconnected from ${playerBroadcast ?: broadcastName}.")
         playerBroadcast = null
-        mainStatusMessage = message
-
-        val screen = MainScreen(
-            activity = this,
-            initialStatus = message,
-            initialBroadcast = broadcastName,
-            onSubscribe = ::subscribeFromInput,
-            onPublishScreen = ::requestScreenPublish,
-            onStopPublish = { stopPublish("Screen publish stopped.") },
-            onConfigureRelay = { showConfigUi("Update relay URL.") },
-        )
-        configScreen = null
-        mainScreen = screen
         playerScreen = null
-        status = screen.status
-        setContentView(screen.root)
-        screen.requestInitialFocus()
+        currentScreen = AppScreen.Home
+        setComposeContent()
+    }
+
+    private fun showSettingsUi(message: String = settingsStatusMessage) {
+        exitFullscreen()
+        stopPlayback("Disconnected from ${playerBroadcast ?: broadcastName}.")
+        playerBroadcast = null
+        settingsStatusMessage = message
+        playerScreen = null
+        settingsRelayUrl = relayUrl
+        currentScreen = AppScreen.Settings
+        setComposeContent()
+    }
+
+    private fun setComposeContent() {
+        setContent {
+            when (currentScreen) {
+                AppScreen.Config -> FirstRunConfig(
+                    state = RelayConfigUiState(
+                        relayUrl = configRelayUrl,
+                        status = configStatusMessage,
+                    ),
+                    actions = RelayConfigActions(
+                        onRelayUrlChange = { configRelayUrl = it },
+                        onContinue = ::saveConfigFromInput,
+                    ),
+                )
+
+                AppScreen.Home -> MainTabs(
+                    state = MainTabsState(
+                        publish = PublishPanelState(
+                            broadcast = publishBroadcastName,
+                            includeSystemAudio = includeSystemAudio,
+                            status = publishStatusMessage,
+                        ),
+                        subscribe = SubscribePanelState(
+                            broadcast = subscribeBroadcastName,
+                            status = subscribeStatusMessage,
+                        ),
+                    ),
+                    actions = MainTabsActions(
+                        publish = PublishPanelActions(
+                            onBroadcastChange = { publishBroadcastName = it },
+                            onIncludeSystemAudioChange = { includeSystemAudio = it },
+                            onPublish = ::requestScreenPublish,
+                            onStopPublish = { stopPublish("Screen publish stopped.") },
+                        ),
+                        subscribe = SubscribePanelActions(
+                            onBroadcastChange = { subscribeBroadcastName = it },
+                            onSubscribe = ::subscribeFromInput,
+                        ),
+                        onSettings = ::showSettingsUi,
+                    ),
+                )
+
+                AppScreen.Settings -> RelaySettings(
+                    state = RelayConfigUiState(
+                        relayUrl = settingsRelayUrl,
+                        status = settingsStatusMessage,
+                    ),
+                    actions = RelaySettingsActions(
+                        onRelayUrlChange = { settingsRelayUrl = it },
+                        onSave = ::saveSettingsFromInput,
+                        onBack = ::showMainUi,
+                    ),
+                )
+            }
+        }
     }
 
     private fun saveConfigFromInput() {
-        val nextRelayUrl = configScreen?.relayUrl().orEmpty().trim()
+        val nextRelayUrl = configRelayUrl.trim()
         val validationError = validateRelayUrl(nextRelayUrl)
         if (validationError != null) {
             updateConfigStatus(validationError)
@@ -116,8 +182,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
 
         relayUrl = nextRelayUrl
+        settingsRelayUrl = nextRelayUrl
         configStore.saveRelayUrl(nextRelayUrl)
-        showMainUi("Relay saved. Enter a broadcast name, then subscribe.")
+        publishStatusMessage = "Relay saved. Ready to publish screen."
+        subscribeStatusMessage = "Relay saved. Ready to subscribe."
+        showMainUi()
+    }
+
+    private fun saveSettingsFromInput() {
+        val nextRelayUrl = settingsRelayUrl.trim()
+        val validationError = validateRelayUrl(nextRelayUrl)
+        if (validationError != null) {
+            updateSettingsStatus(validationError)
+            return
+        }
+
+        relayUrl = nextRelayUrl
+        configRelayUrl = nextRelayUrl
+        configStore.saveRelayUrl(nextRelayUrl)
+        publishStatusMessage = "Relay updated."
+        subscribeStatusMessage = "Relay updated."
+        showMainUi()
     }
 
     private fun validateRelayUrl(value: String): String? {
@@ -132,9 +217,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     private fun subscribeFromInput() {
-        val nextBroadcast = mainScreen?.broadcastName().orEmpty().trim().trim('/')
+        val nextBroadcast = subscribeBroadcastName.trim().trim('/')
         if (nextBroadcast.isEmpty()) {
-            updateMainStatus("Broadcast name cannot be empty.")
+            updateSubscribeStatus("Broadcast name cannot be empty.")
             return
         }
 
@@ -143,33 +228,51 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     private fun requestScreenPublish() {
-        val nextBroadcast = mainScreen?.broadcastName().orEmpty().trim().trim('/')
+        val nextBroadcast = publishBroadcastName.trim().trim('/')
         if (nextBroadcast.isEmpty()) {
-            updateMainStatus("Broadcast name cannot be empty.")
+            updatePublishHomeStatus("Broadcast name cannot be empty.")
             return
         }
 
         broadcastName = nextBroadcast
+        if (includeSystemAudio && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            updatePublishHomeStatus("System audio capture requires Android 10+.\nbroadcast=$nextBroadcast")
+            return
+        }
+        if (includeSystemAudio && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            updatePublishHomeStatus("Audio permission is required before publishing system audio.\nbroadcast=$nextBroadcast")
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            updateMainStatus("Notification permission is required before screen publish.\nbroadcast=$nextBroadcast")
+            updatePublishHomeStatus("Notification permission is required before screen publish.\nbroadcast=$nextBroadcast")
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
             return
         }
 
-        updateMainStatus("Requesting screen capture permission ...\nbroadcast=$nextBroadcast")
+        updatePublishHomeStatus("Requesting screen capture permission ...\nbroadcast=$nextBroadcast")
         startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE)
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQUEST_NOTIFICATIONS) return
-
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            requestScreenPublish()
-        } else {
-            updateMainStatus("Notification permission denied. Screen publish was not started.")
+        when (requestCode) {
+            REQUEST_NOTIFICATIONS -> {
+                if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                    requestScreenPublish()
+                } else {
+                    updatePublishHomeStatus("Notification permission denied. Screen publish was not started.")
+                }
+            }
+            REQUEST_RECORD_AUDIO -> {
+                if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                    requestScreenPublish()
+                } else {
+                    updatePublishHomeStatus("Audio permission denied. Screen publish was not started.")
+                }
+            }
         }
     }
 
@@ -179,7 +282,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         if (requestCode != REQUEST_SCREEN_CAPTURE) return
 
         if (resultCode != RESULT_OK || data == null) {
-            updateMainStatus("Screen capture permission denied.")
+            updatePublishHomeStatus("Screen capture permission denied.")
             return
         }
 
@@ -189,7 +292,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private fun startScreenPublish(resultCode: Int, data: Intent) {
         stopPublish("Restarting screen publish ...")
         val publishBroadcast = broadcastName
-        val config = screenVideoConfig()
+        val config = screenPublishConfig()
         val sessionId = ++publishSessionId
         publishJob = scope.launch {
             runCatching {
@@ -217,25 +320,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
-    private fun screenVideoConfig(): ScreenVideoConfig {
+    private fun screenPublishConfig(): ScreenPublishConfig {
         val metrics = resources.displayMetrics
         val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels)
-        return ScreenVideoConfig(
-            width = width,
-            height = height,
-            densityDpi = metrics.densityDpi,
+        return ScreenPublishConfig(
+            video = ScreenVideoConfig(
+                width = width,
+                height = height,
+                densityDpi = metrics.densityDpi,
+            ),
+            audio = if (includeSystemAudio) SystemAudioConfig.Enabled() else SystemAudioConfig.Disabled,
         )
     }
 
     private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
-        val landscape = sourceWidth >= sourceHeight
-        val maxWidth = if (landscape) MAX_PUBLISH_LONG_EDGE else MAX_PUBLISH_SHORT_EDGE
-        val maxHeight = if (landscape) MAX_PUBLISH_SHORT_EDGE else MAX_PUBLISH_LONG_EDGE
-        val scale = minOf(
-            maxWidth.toFloat() / sourceWidth,
-            maxHeight.toFloat() / sourceHeight,
-            1f,
-        )
+        val longestEdge = maxOf(sourceWidth, sourceHeight)
+        val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
         val width = (sourceWidth * scale).toInt().roundDownToEven().coerceAtLeast(2)
         val height = (sourceHeight * scale).toInt().roundDownToEven().coerceAtLeast(2)
         return width to height
@@ -244,7 +344,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private fun showPlayerUi(nextBroadcast: String) {
         enterFullscreen()
         playerBroadcast = nextBroadcast
-        mainStatusMessage = "Disconnected from $nextBroadcast."
+        subscribeStatusMessage = "Disconnected from $nextBroadcast."
 
         val screen = PlayerScreen(
             activity = this,
@@ -252,8 +352,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             surfaceCallback = this,
         )
         playerScreen = screen
-        mainScreen = null
-        status = screen.status
         setContentView(screen.root)
     }
 
@@ -294,12 +392,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK && playerBroadcast != null) {
-            showMainUi("Disconnected from ${playerBroadcast ?: broadcastName}.")
+            subscribeStatusMessage = "Disconnected from ${playerBroadcast ?: broadcastName}."
+            showMainUi()
             return true
         }
 
-        if (keyCode == KeyEvent.KEYCODE_BACK && mainScreen != null) {
-            showConfigUi("Update relay URL.")
+        if (keyCode == KeyEvent.KEYCODE_BACK && currentScreen == AppScreen.Settings) {
+            showMainUi()
             return true
         }
 
@@ -312,27 +411,31 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         super.onDestroy()
     }
 
-    private fun updateMainStatus(message: String) {
-        mainStatusMessage = message
+    private fun updatePublishHomeStatus(message: String) {
+        publishStatusMessage = message
         Log.i(logTag, message)
-        runOnUiThread { status.text = message }
+    }
+
+    private fun updateSubscribeStatus(message: String) {
+        subscribeStatusMessage = message
+        Log.i(logTag, message)
     }
 
     private fun updateConfigStatus(message: String) {
         configStatusMessage = message
         Log.i(logTag, message)
-        runOnUiThread { configScreen?.setStatus(message) }
+    }
+
+    private fun updateSettingsStatus(message: String) {
+        settingsStatusMessage = message
+        Log.i(logTag, message)
     }
 
     private fun updatePublishStatus(state: PublishState, sessionId: Int = publishSessionId) {
         if (sessionId != publishSessionId) return
         val message = state.message()
         Log.i(logTag, message)
-        runOnUiThread {
-            if (sessionId == publishSessionId && mainScreen != null) {
-                status.text = message
-            }
-        }
+        publishStatusMessage = message
     }
 
     private fun updatePlayerStatus(state: PlayerState, sessionId: Int = playbackSessionId) {
@@ -355,7 +458,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         playbackSessionId += 1
         playbackJob?.cancel()
         playbackJob = null
-        mainStatusMessage = message
+        subscribeStatusMessage = message
     }
 
     private fun stopPublish(message: String) {
@@ -363,8 +466,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         publishJob?.cancel()
         publishJob = null
         ScreenCaptureService.stop(this)
-        mainStatusMessage = message
-        if (mainScreen != null) updateMainStatus(message)
+        publishStatusMessage = message
+        if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
 
     private fun enterFullscreen() {
@@ -386,7 +489,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         private const val REQUEST_SCREEN_CAPTURE = 1001
         private const val REQUEST_NOTIFICATIONS = 1002
-        private const val MAX_PUBLISH_LONG_EDGE = 1920
-        private const val MAX_PUBLISH_SHORT_EDGE = 1080
+        private const val REQUEST_RECORD_AUDIO = 1003
+        private const val MAX_PUBLISH_LONG_EDGE = 1080
     }
+}
+
+private enum class AppScreen {
+    Config,
+    Home,
+    Settings,
 }

@@ -20,7 +20,11 @@ class ScreenVideoEncoder(
     private val relayUrl: String,
     private val status: (PublishState) -> Unit,
 ) {
-    suspend fun run(config: ScreenVideoConfig, broadcastName: String) = withContext(Dispatchers.Default) {
+    suspend fun run(
+        config: ScreenVideoConfig,
+        broadcastName: String,
+        audioConfig: SystemAudioConfig,
+    ) = withContext(Dispatchers.Default) {
         val codec = MediaCodec.createEncoderByType(MIME_AVC)
         var virtualDisplay: VirtualDisplay? = null
         var codecStarted = false
@@ -57,14 +61,23 @@ class ScreenVideoEncoder(
                 putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
             })
 
-            status(PublishState.Publishing(relayUrl, broadcastName, config.width, config.height, config.bitrate, config.frameRate))
+            status(
+                PublishState.Publishing(
+                    relayUrl = relayUrl,
+                    broadcastName = broadcastName,
+                    width = config.width,
+                    height = config.height,
+                    bitrate = config.bitrate,
+                    frameRate = config.frameRate,
+                    audioEnabled = audioConfig is SystemAudioConfig.Enabled,
+                ),
+            )
             drain(codec, media, stats, status)
         } finally {
             status(PublishState.Stopping)
             virtualDisplay?.release()
             if (codecStarted) runCatching { codec.stop() }
             codec.release()
-            projection.stop()
             runCatching { media.finish() }
         }
     }

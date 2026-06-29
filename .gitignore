@@ -4,6 +4,7 @@
 
 # Gradle
 .gradle/
+.kotlin/
 **/build/
 
 # Local machine configuration
@@ -18,6 +19,7 @@ local.properties
 *.apk
 *.aab
 captures/
+*.hprof
 
 # Signing and private configuration
 *.jks

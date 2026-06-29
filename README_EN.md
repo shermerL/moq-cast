@@ -17,13 +17,14 @@ Supported interoperability:
 ## Features
 
 - Start screen sharing
+- Publish Android system audio (Android 10 or later)
 - Subscribe to and play video streams
 
 ## Requirements
 
 - Android Studio
 - JDK 17
-- Android SDK 33
+- Android SDK 35
 - Android 8.0 (API 26) or later
 - An accessible MoQ relay (you need to deploy a `moq-relay` service)
 
@@ -103,10 +104,13 @@ The underlying MoQ networking functionality is provided by `dev.moq:moq`. This d
 - `FOREGROUND_SERVICE`: Keep screen publishing active in a foreground service
 - `FOREGROUND_SERVICE_MEDIA_PROJECTION`: Declare the screen capture service type
 - `POST_NOTIFICATIONS`: Display the foreground service notification while publishing
+- `RECORD_AUDIO`: Capture system playback audio on Android 10 or later
 
 ## Current Limitations
 
-- Screen publishing supports H.264 video only and does not currently publish audio
+- Screen publishing supports H.264 video only
+- System audio publishing requires Android 10 or later, and the captured app must allow audio playback capture
+- Microphone audio capture is not currently supported
 - Codec negotiation is not currently supported
 - Automated tests and release signing have not been added
 
