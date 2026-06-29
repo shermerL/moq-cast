@@ -10,6 +10,18 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.2.0 (Debug) - 2026-06-29
+
+### 中文
+
+- 使用 Compose Material 3 重构主界面，发布与订阅入口分离
+- 支持发布 Android 系统音频，使用 Opus 进行音频编码
+
+### English
+
+- Rebuild the main UI with Compose Material 3 and separate publish and subscribe entry points
+- Support publishing Android system audio with Opus encoding
+
 ## 0.1.0 (Debug) - 2026-06-21
 
 ### 初始化 / Init
