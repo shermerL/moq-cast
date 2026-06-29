@@ -40,6 +40,10 @@ class SystemAudioCapture(
             "system audio capture config sampleRate=${config.sampleRate} channels=${config.channelCount} " +
                 "frameDurationMs=${config.frameDurationMs} bitrate=${config.bitrate}",
         )
+        Log.i(
+            logTag,
+            "system audio pipeline capture=AudioRecord output=pcm_s16 encoder=moq-native codec=opus",
+        )
         val minBuffer = AudioRecord.getMinBufferSize(
             config.sampleRate,
             config.channelInMask(),

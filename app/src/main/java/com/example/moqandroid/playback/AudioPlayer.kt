@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTimestamp
 import android.media.AudioTrack
+import android.os.SystemClock
 import android.util.Log
 import com.example.moqandroid.catalog.PlayableAudioTrack
 import kotlinx.coroutines.Dispatchers
@@ -25,9 +26,16 @@ class AudioPlayer(private val logTag: String) {
 
         val bufferSize = maxOf(minBuffer, audio.bytesPerSecond / 5)
         val track = createTrack(audio, bufferSize)
+        val stats = AudioRenderStats(logTag, audio)
 
         try {
             clock?.bind(track)
+            Log.i(
+                logTag,
+                "audio playback start track=${audio.name} codec=${audio.audio.codec} " +
+                    "decoder=moq-native output=s16 renderer=AudioTrack " +
+                    "sampleRate=${audio.sampleRate} channels=${audio.channelCount} bufferSize=$bufferSize",
+            )
             track.play()
             coroutineScope {
                 while (coroutineContext.isActive) {
@@ -43,7 +51,7 @@ class AudioPlayer(private val logTag: String) {
                         offset += written
                     }
                     clock?.commitFrame(track.playbackHeadPosition.toLong())
-                    Log.d(logTag, "audio frame ${audio.name} bytes=${data.size} ts=${frame.timestampUs}")
+                    stats.onFrame(data.size, frame.timestampUs.toLong(), track.playbackHeadPosition.toLong())
                 }
             }
         } finally {
@@ -83,6 +91,37 @@ class AudioPlayer(private val logTag: String) {
                 AudioTrack.MODE_STREAM,
             )
         }
+    }
+}
+
+private class AudioRenderStats(
+    private val logTag: String,
+    private val audio: PlayableAudioTrack,
+) {
+    private var frames = 0
+    private var bytes = 0L
+    private var lastTimestampUs = 0L
+    private var lastPlaybackHeadFrames = 0L
+    private var lastUpdateMs = SystemClock.elapsedRealtime()
+
+    fun onFrame(size: Int, timestampUs: Long, playbackHeadFrames: Long) {
+        frames += 1
+        bytes += size
+        lastTimestampUs = timestampUs
+        lastPlaybackHeadFrames = playbackHeadFrames
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastUpdateMs < 1_000) return
+
+        Log.i(
+            logTag,
+            "audio render track=${audio.name} frames=$frames bytes=$bytes " +
+                "streamTsUs=$lastTimestampUs playbackHeadFrames=$lastPlaybackHeadFrames",
+        )
+
+        frames = 0
+        bytes = 0
+        lastUpdateMs = now
     }
 }
 

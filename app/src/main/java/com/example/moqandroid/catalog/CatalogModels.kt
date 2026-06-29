@@ -1,10 +1,9 @@
 package com.example.moqandroid.catalog
 
 import android.media.AudioFormat
-import android.media.MediaCodecInfo
-import android.media.MediaCodecList
 import android.media.MediaFormat
 import com.example.moqandroid.media.AvcConfig
+import com.example.moqandroid.media.codec.CodecSupport
 import com.example.moqandroid.media.parseAvcConfig
 import java.nio.ByteBuffer
 import uniffi.moq.MoqAudio
@@ -106,7 +105,7 @@ fun PlayableAudioTrack.decoderOutput(): MoqAudioDecoderOutput {
 fun MoqVideo.toPlayableTrack(name: String): PlayableTrack? {
     val mime = runCatching { codec.toMimeType() }.getOrNull() ?: return null
     val avcConfig = if (mime == "video/avc") description?.parseAvcConfig() else null
-    return if (hasDecoderFor(mediaFormat(mime, avcConfig))) {
+    return if (CodecSupport.hasDecoderFor(mediaFormat(mime, avcConfig))) {
         PlayableTrack(name, this, mime, avcConfig, mime.codecPreference())
     } else {
         null
@@ -170,16 +169,6 @@ private fun String.codecPreference(): Int = when (this) {
     "video/x-vnd.on2.vp9" -> 2
     "video/av01" -> 3
     else -> 100
-}
-
-private fun hasDecoderFor(format: MediaFormat): Boolean {
-    val codecs = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
-    return codecs.any { codec -> !codec.isEncoder && codec.supports(format) }
-}
-
-private fun MediaCodecInfo.supports(format: MediaFormat): Boolean {
-    val mime = format.getString(MediaFormat.KEY_MIME) ?: return false
-    return runCatching { getCapabilitiesForType(mime).isFormatSupported(format) }.getOrDefault(false)
 }
 
 private fun String.toMimeType(): String = when {

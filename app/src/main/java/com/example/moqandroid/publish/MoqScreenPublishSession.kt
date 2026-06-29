@@ -29,6 +29,12 @@ class MoqScreenPublishSession(
             MoqBroadcastProducer().use { broadcast ->
                 val media = broadcast.publishMediaStream("avc3")
                 val audio = (config.audio as? SystemAudioConfig.Enabled)?.let { audioConfig ->
+                    Log.i(
+                        LOG_TAG,
+                        "publishing audio track=0 codec=opus encoder=moq-native input=s16 " +
+                            "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
+                            "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
+                    )
                     broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
                 }
                 MoqOriginProducer().use { origin ->
