@@ -10,6 +10,16 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.2.1 (Debug) - 2026-07-01
+
+### 中文
+
+- 修复屏幕发布进入后台一段时间后断开的问题
+
+### English
+
+- Fix screen publishing stopping after the app stays in the background
+
 ## 0.2.0 (Debug) - 2026-06-29
 
 ### 中文

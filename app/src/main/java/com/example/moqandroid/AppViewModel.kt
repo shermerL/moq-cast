@@ -1,7 +1,7 @@
 package com.example.moqandroid
 
 import android.app.Application
-import android.media.projection.MediaProjection
+import android.content.Intent
 import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
@@ -16,13 +16,11 @@ import com.example.moqandroid.config.AppConfigStore
 import com.example.moqandroid.media.codec.CodecSupport
 import com.example.moqandroid.playback.MoqPlaybackSession
 import com.example.moqandroid.playback.PlayerState
-import com.example.moqandroid.publish.MoqScreenPublishSession
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.ScreenCaptureService
 import com.example.moqandroid.publish.ScreenPublishConfig
 import com.example.moqandroid.publish.ScreenVideoConfig
 import com.example.moqandroid.publish.SystemAudioConfig
-import java.lang.SecurityException
 import java.net.URI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -61,15 +59,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private var activeBroadcastName = "bbb.hang"
     private var playbackJob: Job? = null
-    private var publishJob: Job? = null
     private var playbackSessionId = 0
-    private var publishSessionId = 0
 
     init {
         relayUrl = configStore.loadRelayUrl()
         configRelayUrl = relayUrl
         settingsRelayUrl = relayUrl
         currentScreen = if (relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
+        viewModelScope.launch {
+            ScreenCaptureService.status.collect { state ->
+                updatePublishStatus(state)
+            }
+        }
     }
 
     fun updateConfigRelayUrl(value: String) {
@@ -186,35 +187,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startScreenPublish(
-        projection: MediaProjection,
+        resultCode: Int,
+        resultData: Intent,
         metrics: DisplayMetrics,
     ) {
-        stopPublish("Restarting screen publish ...")
-        val publishBroadcast = activeBroadcastName
-        val config = screenPublishConfig(metrics)
-        val sessionId = ++publishSessionId
-        publishJob = viewModelScope.launch {
-            runCatching {
-                val publisher = MoqScreenPublishSession(
-                    relayUrl = relayUrl,
-                    status = { state -> updatePublishStatus(state, sessionId) },
-                )
-                publisher.publish(projection, publishBroadcast, config)
-            }.onFailure { error ->
-                Log.w(logTag, "screen publish failed", error)
-                val reason = when (error) {
-                    is SecurityException -> "Screen capture requires a mediaProjection foreground service:\n${error.message}"
-                    else -> error.message ?: error::class.java.name
-                }
-                if (isActive) updatePublishStatus(PublishState.Failed(reason), sessionId)
-            }.also {
-                ScreenCaptureService.stop(getApplication())
-            }
-        }
-    }
-
-    fun startProjectionForegroundService() {
-        ScreenCaptureService.start(getApplication(), relayUrl, activeBroadcastName)
+        publishStatusMessage = "Starting screen publish ..."
+        ScreenCaptureService.start(
+            context = getApplication(),
+            relayUrl = relayUrl,
+            broadcastName = activeBroadcastName,
+            resultCode = resultCode,
+            resultData = resultData,
+            config = screenPublishConfig(metrics),
+        )
     }
 
     fun startPlayback(
@@ -252,16 +237,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopPublish(message: String) {
-        publishSessionId += 1
-        publishJob?.cancel()
-        publishJob = null
         ScreenCaptureService.stop(getApplication())
         publishStatusMessage = message
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
 
     override fun onCleared() {
-        stopPublish("Screen publish stopped.")
+        Log.i(logTag, "AppViewModel cleared")
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         super.onCleared()
     }
@@ -317,12 +299,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         Log.i(logTag, message)
     }
 
-    private fun updatePublishStatus(state: PublishState, sessionId: Int) {
-        if (sessionId != publishSessionId) return
+    private fun updatePublishStatus(state: PublishState) {
         val message = state.message()
         Log.i(logTag, message)
         viewModelScope.launch(Dispatchers.Main.immediate) {
-            if (sessionId == publishSessionId) publishStatusMessage = message
+            publishStatusMessage = message
         }
     }
 

@@ -6,15 +6,14 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import com.example.moqandroid.playback.PlayerState
-import com.example.moqandroid.publish.ScreenCaptureService
 import com.example.moqandroid.ui.PlayerScreen
 import com.example.moqandroid.ui.app.FirstRunConfig
 import com.example.moqandroid.ui.app.MainTabs
@@ -28,8 +27,6 @@ import com.example.moqandroid.ui.app.RelaySettings
 import com.example.moqandroid.ui.app.RelaySettingsActions
 import com.example.moqandroid.ui.app.SubscribePanelActions
 import com.example.moqandroid.ui.app.SubscribePanelState
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 
 class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     private lateinit var projectionManager: MediaProjectionManager
@@ -145,19 +142,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
             return
         }
 
-        lifecycleScope.launch {
-            runCatching {
-                viewModel.startProjectionForegroundService()
-                withTimeout(3_000) { ScreenCaptureService.awaitForeground() }
-                projectionManager.getMediaProjection(resultCode, data)
-                    ?: error("Android did not return a MediaProjection.")
-            }.onSuccess { projection ->
-                viewModel.startScreenPublish(projection, resources.displayMetrics)
-            }.onFailure { error ->
-                ScreenCaptureService.stop(this@MainActivity)
-                viewModel.stopPublish("Screen publish failed:\n${error.message ?: error::class.java.name}")
-            }
-        }
+        viewModel.startScreenPublish(resultCode, data, resources.displayMetrics)
     }
 
     private fun showPlayerUi() {
@@ -189,6 +174,16 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         viewModel.stopPlayback("Disconnected from ${viewModel.playerBroadcast ?: viewModel.subscribeBroadcastName}.")
     }
 
+    override fun onPause() {
+        Log.i(LOG_TAG, "MainActivity paused")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        Log.i(LOG_TAG, "MainActivity stopped")
+        super.onStop()
+    }
+
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK && viewModel.playerBroadcast != null) {
             viewModel.showMainUi()
@@ -208,7 +203,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
     }
 
     override fun onDestroy() {
-        viewModel.stopPublish("Screen publish stopped.")
+        Log.i(LOG_TAG, "MainActivity destroyed")
         super.onDestroy()
     }
 
@@ -246,5 +241,6 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         private const val REQUEST_SCREEN_CAPTURE = 1001
         private const val REQUEST_NOTIFICATIONS = 1002
         private const val REQUEST_RECORD_AUDIO = 1003
+        private const val LOG_TAG = "MoqAndroid"
     }
 }
