@@ -2,7 +2,6 @@ package com.example.moqandroid
 
 import android.app.Application
 import android.content.Intent
-import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Surface
@@ -11,32 +10,39 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.moqandroid.catalog.CodecPreference
 import com.example.moqandroid.config.AppConfigStore
-import com.example.moqandroid.media.codec.CodecSupport
-import com.example.moqandroid.playback.MoqPlaybackSession
+import com.example.moqandroid.config.RelayConfig
+import com.example.moqandroid.config.SettingsState
+import com.example.moqandroid.playback.PlaybackController
 import com.example.moqandroid.playback.PlayerState
+import com.example.moqandroid.publish.PublishController
+import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.publish.PublishState
-import com.example.moqandroid.publish.ScreenCaptureService
-import com.example.moqandroid.publish.ScreenPublishConfig
-import com.example.moqandroid.publish.ScreenVideoConfig
-import com.example.moqandroid.publish.SystemAudioConfig
-import java.net.URI
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logTag = "MoqAndroid"
     private val configStore = AppConfigStore(application)
+    private val initialRelayUrl = configStore.loadRelayUrl()
+    private val publishController = PublishController(application)
+    private val playbackController = PlaybackController(viewModelScope, logTag)
 
-    var relayUrl by mutableStateOf("")
+    var relayConfig by mutableStateOf(RelayConfig(initialRelayUrl))
         private set
-    var configRelayUrl by mutableStateOf("")
+    var configState by mutableStateOf(
+        SettingsState(
+            relayUrl = initialRelayUrl,
+            statusMessage = "Relay URL is required before using MoQScreenCast.",
+        ),
+    )
         private set
-    var settingsRelayUrl by mutableStateOf("")
+    var settingsState by mutableStateOf(
+        SettingsState(
+            relayUrl = initialRelayUrl,
+            statusMessage = "Update relay URL.",
+        ),
+    )
         private set
     var publishBroadcastName by mutableStateOf("bbb.hang")
         private set
@@ -44,41 +50,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var currentScreen by mutableStateOf(AppScreen.Config)
         private set
-    var configStatusMessage by mutableStateOf("Relay URL is required before using MoQScreenCast.")
-        private set
     var publishStatusMessage by mutableStateOf("Ready to publish screen.")
         private set
     var subscribeStatusMessage by mutableStateOf("Ready to subscribe.")
         private set
-    var settingsStatusMessage by mutableStateOf("Update relay URL.")
-        private set
-    var includeSystemAudio by mutableStateOf(true)
+    var includeSystemAudio by mutableStateOf(false)
         private set
     var playerBroadcast by mutableStateOf<String?>(null)
         private set
 
     private var activeBroadcastName = "bbb.hang"
-    private var playbackJob: Job? = null
-    private var playbackSessionId = 0
+
+    val relayUrl: String
+        get() = relayConfig.relayUrl
+
+    val configRelayUrl: String
+        get() = configState.relayUrl
+
+    val configStatusMessage: String
+        get() = configState.statusMessage
+
+    val settingsRelayUrl: String
+        get() = settingsState.relayUrl
+
+    val settingsStatusMessage: String
+        get() = settingsState.statusMessage
 
     init {
-        relayUrl = configStore.loadRelayUrl()
-        configRelayUrl = relayUrl
-        settingsRelayUrl = relayUrl
-        currentScreen = if (relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
+        currentScreen = if (relayConfig.relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
         viewModelScope.launch {
-            ScreenCaptureService.status.collect { state ->
+            publishController.status.collect { state ->
                 updatePublishStatus(state)
             }
         }
     }
 
     fun updateConfigRelayUrl(value: String) {
-        configRelayUrl = value
+        configState = configState.withRelayUrl(value)
     }
 
     fun updateSettingsRelayUrl(value: String) {
-        settingsRelayUrl = value
+        settingsState = settingsState.withRelayUrl(value)
     }
 
     fun updatePublishBroadcast(value: String) {
@@ -102,22 +114,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun showSettingsUi() {
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         playerBroadcast = null
-        settingsRelayUrl = relayUrl
-        settingsStatusMessage = "Update relay URL."
+        settingsState = SettingsState(
+            relayUrl = relayConfig.relayUrl,
+            statusMessage = "Update relay URL.",
+        )
         currentScreen = AppScreen.Settings
     }
 
     fun saveConfigFromInput(): Boolean {
-        val nextRelayUrl = configRelayUrl.trim()
-        val validationError = validateRelayUrl(nextRelayUrl)
-        if (validationError != null) {
-            updateConfigStatus(validationError)
-            return false
-        }
+        val nextRelayConfig = relayConfigFromInput(configState.relayUrl, ::updateConfigStatus) ?: return false
 
-        relayUrl = nextRelayUrl
-        settingsRelayUrl = nextRelayUrl
-        configStore.saveRelayUrl(nextRelayUrl)
+        relayConfig = nextRelayConfig
+        settingsState = settingsState.withRelayUrl(nextRelayConfig.relayUrl)
+        configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         publishStatusMessage = "Relay saved. Ready to publish screen."
         subscribeStatusMessage = "Relay saved. Ready to subscribe."
         showMainUi()
@@ -125,16 +134,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveSettingsFromInput(): Boolean {
-        val nextRelayUrl = settingsRelayUrl.trim()
-        val validationError = validateRelayUrl(nextRelayUrl)
-        if (validationError != null) {
-            updateSettingsStatus(validationError)
-            return false
-        }
+        val nextRelayConfig = relayConfigFromInput(settingsState.relayUrl, ::updateSettingsStatus) ?: return false
 
-        relayUrl = nextRelayUrl
-        configRelayUrl = nextRelayUrl
-        configStore.saveRelayUrl(nextRelayUrl)
+        relayConfig = nextRelayConfig
+        configState = configState.withRelayUrl(nextRelayConfig.relayUrl)
+        configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         publishStatusMessage = "Relay updated."
         subscribeStatusMessage = "Relay updated."
         showMainUi()
@@ -158,32 +162,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hasRecordAudioPermission: Boolean,
         hasNotificationPermission: Boolean,
     ): PublishRequest {
-        val nextBroadcast = publishBroadcastName.trim().trim('/')
-        if (nextBroadcast.isEmpty()) {
-            updatePublishHomeStatus("Broadcast name cannot be empty.")
-            return PublishRequest.None
-        }
-
-        activeBroadcastName = nextBroadcast
-        if (!CodecSupport.hasEncoderFor(MIME_AVC)) {
-            updatePublishHomeStatus("This device has no H.264 encoder.\n${CodecSupport.describeVideoEncoders()}")
-            return PublishRequest.None
-        }
-        if (includeSystemAudio && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            updatePublishHomeStatus("System audio capture requires Android 10+.\nbroadcast=$nextBroadcast")
-            return PublishRequest.None
-        }
-        if (includeSystemAudio && !hasRecordAudioPermission) {
-            updatePublishHomeStatus("Audio permission is required before publishing system audio.\nbroadcast=$nextBroadcast")
-            return PublishRequest.RequestRecordAudio
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
-            updatePublishHomeStatus("Notification permission is required before screen publish.\nbroadcast=$nextBroadcast")
-            return PublishRequest.RequestNotifications
-        }
-
-        updatePublishHomeStatus("Requesting screen capture permission ...\nbroadcast=$nextBroadcast")
-        return PublishRequest.RequestScreenCapture
+        val preparation = publishController.prepare(
+            broadcastInput = publishBroadcastName,
+            includeSystemAudio = includeSystemAudio,
+            hasRecordAudioPermission = hasRecordAudioPermission,
+            hasNotificationPermission = hasNotificationPermission,
+        )
+        preparation.broadcastName?.let { activeBroadcastName = it }
+        updatePublishHomeStatus(preparation.message)
+        return preparation.request
     }
 
     fun startScreenPublish(
@@ -192,13 +179,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         metrics: DisplayMetrics,
     ) {
         publishStatusMessage = "Starting screen publish ..."
-        ScreenCaptureService.start(
-            context = getApplication(),
-            relayUrl = relayUrl,
+        publishController.start(
+            relayConfig = relayConfig,
             broadcastName = activeBroadcastName,
             resultCode = resultCode,
             resultData = resultData,
-            config = screenPublishConfig(metrics),
+            metrics = metrics,
+            includeSystemAudio = includeSystemAudio,
         )
     }
 
@@ -208,36 +195,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val nextBroadcast = playerBroadcast ?: return
 
-        playbackJob?.cancel()
-        val sessionId = ++playbackSessionId
-        playbackJob = viewModelScope.launch {
-            val playback = MoqPlaybackSession(
-                relayUrl = relayUrl,
-                logTag = logTag,
-                status = { state -> updatePlayerStatus(state, sessionId, onPlayerState) },
-            )
-            runCatching {
-                playback.play(surface, nextBroadcast, CodecPreference.Auto)
-                updatePlayerStatus(PlayerState.Disconnected, sessionId, onPlayerState)
-            }.onFailure { error ->
-                Log.w(logTag, "playback failed", error)
-                when {
-                    error is CancellationException -> updatePlayerStatus(PlayerState.Disconnected, sessionId, onPlayerState)
-                    isActive -> updatePlayerStatus(PlayerState.Failed(error.message ?: error::class.java.name), sessionId, onPlayerState)
-                }
-            }
-        }
+        playbackController.start(
+            surface = surface,
+            relayUrl = relayConfig.relayUrl,
+            broadcastName = nextBroadcast,
+            onPlayerState = onPlayerState,
+        )
     }
 
     fun stopPlayback(message: String) {
-        playbackSessionId += 1
-        playbackJob?.cancel()
-        playbackJob = null
+        playbackController.stop()
         subscribeStatusMessage = message
     }
 
     fun stopPublish(message: String) {
-        ScreenCaptureService.stop(getApplication())
+        publishController.stop()
         publishStatusMessage = message
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
@@ -248,35 +220,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
-    private fun screenPublishConfig(metrics: DisplayMetrics): ScreenPublishConfig {
-        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels)
-        return ScreenPublishConfig(
-            video = ScreenVideoConfig(
-                width = width,
-                height = height,
-                densityDpi = metrics.densityDpi,
-            ),
-            audio = if (includeSystemAudio) SystemAudioConfig.Enabled() else SystemAudioConfig.Disabled,
-        )
-    }
-
-    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
-        val longestEdge = maxOf(sourceWidth, sourceHeight)
-        val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
-        val width = (sourceWidth * scale).toInt().roundDownToEven().coerceAtLeast(2)
-        val height = (sourceHeight * scale).toInt().roundDownToEven().coerceAtLeast(2)
-        return width to height
-    }
-
-    private fun validateRelayUrl(value: String): String? {
-        if (value.isEmpty()) return "Relay URL cannot be empty."
-
-        val uri = runCatching { URI(value) }.getOrNull()
-            ?: return "Relay URL is invalid."
-        if (uri.scheme != "http" && uri.scheme != "https") return "Relay URL must start with http:// or https://."
-        if (uri.host.isNullOrBlank()) return "Relay URL must include a host."
-
-        return null
+    private fun relayConfigFromInput(
+        value: String,
+        onInvalid: (String) -> Unit,
+    ): RelayConfig? {
+        return RelayConfig.fromInput(value).getOrElse { error ->
+            onInvalid(error.message ?: "Relay URL is invalid.")
+            null
+        }
     }
 
     private fun updatePublishHomeStatus(message: String) {
@@ -290,12 +241,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateConfigStatus(message: String) {
-        configStatusMessage = message
+        configState = configState.withStatus(message)
         Log.i(logTag, message)
     }
 
     private fun updateSettingsStatus(message: String) {
-        settingsStatusMessage = message
+        settingsState = settingsState.withStatus(message)
         Log.i(logTag, message)
     }
 
@@ -306,40 +257,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             publishStatusMessage = message
         }
     }
-
-    private fun updatePlayerStatus(
-        state: PlayerState,
-        sessionId: Int,
-        onPlayerState: (PlayerState, String) -> Unit,
-    ) {
-        val broadcast = playerBroadcast ?: return
-        if (sessionId != playbackSessionId) return
-        val message = state.message(broadcast)
-        Log.i(logTag, message)
-        viewModelScope.launch(Dispatchers.Main.immediate) {
-            if (sessionId == playbackSessionId && playerBroadcast != null) {
-                onPlayerState(state, message)
-            }
-        }
-    }
-
-    private fun Int.roundDownToEven(): Int = if (this % 2 == 0) this else this - 1
-
-    companion object {
-        private const val MIME_AVC = "video/avc"
-        private const val MAX_PUBLISH_LONG_EDGE = 1080
-    }
 }
 
 enum class AppScreen {
     Config,
     Home,
     Settings,
-}
-
-sealed interface PublishRequest {
-    data object None : PublishRequest
-    data object RequestRecordAudio : PublishRequest
-    data object RequestNotifications : PublishRequest
-    data object RequestScreenCapture : PublishRequest
 }

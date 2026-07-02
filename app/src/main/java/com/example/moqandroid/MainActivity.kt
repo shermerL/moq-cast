@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
 import com.example.moqandroid.playback.PlayerState
+import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.ui.PlayerScreen
 import com.example.moqandroid.ui.app.FirstRunConfig
 import com.example.moqandroid.ui.app.MainTabs

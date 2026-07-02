@@ -38,13 +38,12 @@ class MoqScreenPublishSession(
                     broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
                 }
                 MoqOriginProducer().use { origin ->
-                    origin.publish(broadcastName, broadcast)
-
                     MoqClient().use { client ->
                         client.setPublish(origin)
                         status(PublishState.Connecting(relayUrl, broadcastName))
                         client.connect(relayUrl).use { session ->
                             try {
+                                origin.publish(broadcastName, broadcast)
                                 coroutineScope {
                                     val audioJob = audio?.let { producer ->
                                         val audioConfig = config.audio as SystemAudioConfig.Enabled
