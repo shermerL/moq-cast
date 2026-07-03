@@ -10,6 +10,18 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.2.2 (Debug) - 2026-07-03
+
+### 中文
+
+- 重构发布端 source/pipeline
+- 拆分编码实现和屏幕采集实现
+
+### English
+
+- Refactor the publish source/pipeline
+- Split encoder and screen capture implementations
+
 ## 0.2.1 (Debug) - 2026-07-01
 
 ### 中文
