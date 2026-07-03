@@ -1,5 +1,32 @@
 package com.example.moqandroid.config
 
+import android.content.Context
+import android.content.res.Configuration
+import androidx.annotation.StringRes
+import com.example.moqandroid.R
+import java.util.Locale
+
+enum class AppLanguage(
+    val storageValue: String,
+    val localeTag: String,
+    @StringRes val labelRes: Int,
+) {
+    English("en", "en", R.string.language_english),
+    Chinese("zh", "zh", R.string.language_chinese);
+
+    companion object {
+        fun fromStorageValue(value: String?): AppLanguage {
+            return entries.firstOrNull { it.storageValue == value } ?: English
+        }
+    }
+}
+
+fun Context.withAppLanguage(language: AppLanguage): Context {
+    val configuration = Configuration(resources.configuration)
+    configuration.setLocale(Locale.forLanguageTag(language.localeTag))
+    return createConfigurationContext(configuration)
+}
+
 data class RelayConfig(val relayUrl: String) {
     companion object {
         fun fromInput(value: String): Result<RelayConfig> {
@@ -17,9 +44,11 @@ data class RelayConfig(val relayUrl: String) {
 data class SettingsState(
     val relayUrl: String,
     val statusMessage: String,
+    val language: AppLanguage = AppLanguage.English,
 ) {
     fun withRelayUrl(value: String): SettingsState = copy(relayUrl = value)
 
     fun withStatus(message: String): SettingsState = copy(statusMessage = message)
-}
 
+    fun withLanguage(value: AppLanguage): SettingsState = copy(language = value)
+}

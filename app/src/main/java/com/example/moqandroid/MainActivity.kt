@@ -12,7 +12,11 @@ import android.view.SurfaceHolder
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider
+import com.example.moqandroid.config.withAppLanguage
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.ui.PlayerScreen
@@ -26,6 +30,7 @@ import com.example.moqandroid.ui.app.RelayConfigActions
 import com.example.moqandroid.ui.app.RelayConfigUiState
 import com.example.moqandroid.ui.app.RelaySettings
 import com.example.moqandroid.ui.app.RelaySettingsActions
+import com.example.moqandroid.ui.app.SettingsUiState
 import com.example.moqandroid.ui.app.SubscribePanelActions
 import com.example.moqandroid.ui.app.SubscribePanelState
 
@@ -43,66 +48,73 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     private fun setComposeContent() {
         setContent {
-            when (viewModel.currentScreen) {
-                AppScreen.Config -> FirstRunConfig(
-                    state = RelayConfigUiState(
-                        relayUrl = viewModel.configRelayUrl,
-                        status = viewModel.configStatusMessage,
-                    ),
-                    actions = RelayConfigActions(
-                        onRelayUrlChange = viewModel::updateConfigRelayUrl,
-                        onContinue = {
-                            if (viewModel.saveConfigFromInput()) exitFullscreen()
-                        },
-                    ),
-                )
+            val language = viewModel.settingsLanguage
+            val localizedContext = remember(language) { this.withAppLanguage(language) }
+            CompositionLocalProvider(LocalContext provides localizedContext) {
+                when (viewModel.currentScreen) {
+                    AppScreen.Config -> FirstRunConfig(
+                        state = RelayConfigUiState(
+                            relayUrl = viewModel.configRelayUrl,
+                            status = viewModel.configStatusMessage,
+                        ),
+                        actions = RelayConfigActions(
+                            onRelayUrlChange = viewModel::updateConfigRelayUrl,
+                            onContinue = {
+                                if (viewModel.saveConfigFromInput()) exitFullscreen()
+                            },
+                        ),
+                    )
 
-                AppScreen.Home -> MainTabs(
-                    state = MainTabsState(
-                        publish = PublishPanelState(
-                            broadcast = viewModel.publishBroadcastName,
-                            includeSystemAudio = viewModel.includeSystemAudio,
-                            status = viewModel.publishStatusMessage,
+                    AppScreen.Home -> MainTabs(
+                        state = MainTabsState(
+                            publish = PublishPanelState(
+                                broadcast = viewModel.publishBroadcastName,
+                                includeSystemAudio = viewModel.includeSystemAudio,
+                                status = viewModel.publishStatusMessage,
+                            ),
+                            subscribe = SubscribePanelState(
+                                broadcast = viewModel.subscribeBroadcastName,
+                                status = viewModel.subscribeStatusMessage,
+                            ),
                         ),
-                        subscribe = SubscribePanelState(
-                            broadcast = viewModel.subscribeBroadcastName,
-                            status = viewModel.subscribeStatusMessage,
+                        actions = MainTabsActions(
+                            publish = PublishPanelActions(
+                                onBroadcastChange = viewModel::updatePublishBroadcast,
+                                onIncludeSystemAudioChange = viewModel::updateIncludeSystemAudio,
+                                onPublish = ::requestScreenPublish,
+                                onStopPublish = { viewModel.stopPublish(localizedText(R.string.screen_publish_stopped)) },
+                            ),
+                            subscribe = SubscribePanelActions(
+                                onBroadcastChange = viewModel::updateSubscribeBroadcast,
+                                onSubscribe = ::showPlayerUi,
+                            ),
+                            onSettings = {
+                                exitFullscreen()
+                                viewModel.showSettingsUi()
+                            },
                         ),
-                    ),
-                    actions = MainTabsActions(
-                        publish = PublishPanelActions(
-                            onBroadcastChange = viewModel::updatePublishBroadcast,
-                            onIncludeSystemAudioChange = viewModel::updateIncludeSystemAudio,
-                            onPublish = ::requestScreenPublish,
-                            onStopPublish = { viewModel.stopPublish("Screen publish stopped.") },
-                        ),
-                        subscribe = SubscribePanelActions(
-                            onBroadcastChange = viewModel::updateSubscribeBroadcast,
-                            onSubscribe = ::showPlayerUi,
-                        ),
-                        onSettings = {
-                            exitFullscreen()
-                            viewModel.showSettingsUi()
-                        },
-                    ),
-                )
+                    )
 
-                AppScreen.Settings -> RelaySettings(
-                    state = RelayConfigUiState(
-                        relayUrl = viewModel.settingsRelayUrl,
-                        status = viewModel.settingsStatusMessage,
-                    ),
-                    actions = RelaySettingsActions(
-                        onRelayUrlChange = viewModel::updateSettingsRelayUrl,
-                        onSave = {
-                            if (viewModel.saveSettingsFromInput()) exitFullscreen()
-                        },
-                        onBack = {
-                            exitFullscreen()
-                            viewModel.showMainUi()
-                        },
-                    ),
-                )
+                    AppScreen.Settings -> RelaySettings(
+                        state = SettingsUiState(
+                            relayUrl = viewModel.settingsRelayUrl,
+                            status = viewModel.settingsStatusMessage,
+                            language = viewModel.settingsLanguage,
+                            languageOptions = viewModel.languageOptions,
+                        ),
+                        actions = RelaySettingsActions(
+                            onRelayUrlChange = viewModel::updateSettingsRelayUrl,
+                            onLanguageChange = viewModel::updateSettingsLanguage,
+                            onSave = {
+                                if (viewModel.saveSettingsFromInput()) exitFullscreen()
+                            },
+                            onBack = {
+                                exitFullscreen()
+                                viewModel.showMainUi()
+                            },
+                        ),
+                    )
+                }
             }
         }
     }
@@ -139,7 +151,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (requestCode != REQUEST_SCREEN_CAPTURE) return
 
         if (resultCode != RESULT_OK || data == null) {
-            viewModel.stopPublish("Screen capture permission denied.")
+            viewModel.stopPublish(localizedText(R.string.screen_capture_permission_denied))
             return
         }
 
@@ -236,6 +248,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
 
     private fun exitFullscreen() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    }
+
+    private fun localizedText(resId: Int): String {
+        return withAppLanguage(viewModel.settingsLanguage).getString(resId)
     }
 
     companion object {

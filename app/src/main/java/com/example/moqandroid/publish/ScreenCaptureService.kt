@@ -55,7 +55,7 @@ class ScreenCaptureService : Service() {
         if (intent?.action == ACTION_START_PUBLISH) {
             startPublishing(intent)
         } else if (intent == null) {
-            updateStatus(PublishState.Failed("Screen publish service restarted without projection permission."))
+            updateStatus(PublishState.Failed(getString(R.string.screen_publish_service_restarted)))
             stopSelf()
         }
 
@@ -93,7 +93,7 @@ class ScreenCaptureService : Service() {
         )
 
         if (relayUrl.isBlank() || broadcastName.isBlank() || resultData == null) {
-            updateStatus(PublishState.Failed("Missing screen publish service arguments."))
+            updateStatus(PublishState.Failed(getString(R.string.screen_publish_service_missing_args)))
             stopSelf()
             return
         }
@@ -143,7 +143,7 @@ class ScreenCaptureService : Service() {
         }
 
         val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Moq screen publish")
+            .setContentTitle(getString(R.string.screen_publish_notification_title))
             .setContentText("broadcast=${broadcastName.ifEmpty { "unknown" }}")
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_stat_moq)
@@ -174,7 +174,7 @@ class ScreenCaptureService : Service() {
         val pendingIntent = PendingIntent.getService(this, 0, stopIntent, flags)
         return Notification.Action.Builder(
             android.R.drawable.ic_menu_close_clear_cancel,
-            "Stop",
+            getString(R.string.stop),
             pendingIntent,
         ).build()
     }
@@ -184,7 +184,7 @@ class ScreenCaptureService : Service() {
 
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Screen publish",
+            getString(R.string.screen_publish_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         )
         val notificationManager = getSystemService(NotificationManager::class.java)

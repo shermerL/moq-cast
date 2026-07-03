@@ -10,8 +10,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.moqandroid.R
 import com.example.moqandroid.ui.components.Label
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.Page
@@ -30,9 +32,9 @@ fun PublishPanel(
     actions: PublishPanelActions,
 ) {
     Page {
-        SectionHeader("发布", "输入 broadcast，采集当前 Android 屏幕并发布到 relay。")
+        SectionHeader(stringResource(R.string.publish_title), stringResource(R.string.publish_description))
         LabeledField(
-            label = "Broadcast",
+            label = stringResource(R.string.broadcast_label),
             value = state.broadcast,
             placeholder = "bbb.hang",
             onValueChange = actions.onBroadcastChange,
@@ -48,14 +50,14 @@ fun PublishPanel(
                 onCheckedChange = actions.onIncludeSystemAudioChange,
                 colors = CheckboxDefaults.colors(checkedColor = PrimaryColor),
             )
-            Text("Include system audio", color = TextPrimary, fontSize = 15.sp)
+            Text(stringResource(R.string.include_system_audio), color = TextPrimary, fontSize = 15.sp)
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryAction("Publish screen", actions.onPublish)
+        PrimaryAction(stringResource(R.string.publish_screen), actions.onPublish)
         Spacer(Modifier.height(8.dp))
-        SecondaryAction("Stop publish", actions.onStopPublish)
+        SecondaryAction(stringResource(R.string.stop_publish), actions.onStopPublish)
         Spacer(Modifier.height(24.dp))
-        Label("Stats")
+        Label(stringResource(R.string.stats_label))
         Spacer(Modifier.height(8.dp))
         StatusPanel(state.status)
     }

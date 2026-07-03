@@ -15,14 +15,25 @@ class AppConfigStore(context: Context) {
             ?: DEFAULT_RELAY_URL
     }
 
+    fun loadLanguage(): AppLanguage {
+        return AppLanguage.fromStorageValue(prefs.getString(KEY_LANGUAGE, null))
+    }
+
     fun saveRelayUrl(relayUrl: String) {
         prefs.edit()
             .putString(KEY_RELAY_URL, relayUrl.trim())
             .apply()
     }
 
+    fun saveLanguage(language: AppLanguage) {
+        prefs.edit()
+            .putString(KEY_LANGUAGE, language.storageValue)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "moq_android_config"
         private const val KEY_RELAY_URL = "relay_url"
+        private const val KEY_LANGUAGE = "language"
     }
 }

@@ -1,8 +1,17 @@
 package com.example.moqandroid.ui.app
 
+import com.example.moqandroid.config.AppLanguage
+
 data class RelayConfigUiState(
     val relayUrl: String,
     val status: String,
+)
+
+data class SettingsUiState(
+    val relayUrl: String,
+    val status: String,
+    val language: AppLanguage,
+    val languageOptions: List<AppLanguage>,
 )
 
 data class RelayConfigActions(
@@ -46,6 +55,7 @@ data class MainTabsActions(
 
 data class RelaySettingsActions(
     val onRelayUrlChange: (String) -> Unit,
+    val onLanguageChange: (AppLanguage) -> Unit,
     val onSave: () -> Unit,
     val onBack: () -> Unit,
 )

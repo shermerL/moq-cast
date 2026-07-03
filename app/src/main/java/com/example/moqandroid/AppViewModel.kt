@@ -5,14 +5,17 @@ import android.content.Intent
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Surface
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.moqandroid.config.AppConfigStore
+import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.config.RelayConfig
 import com.example.moqandroid.config.SettingsState
+import com.example.moqandroid.config.withAppLanguage
 import com.example.moqandroid.playback.PlaybackController
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.PublishController
@@ -25,6 +28,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logTag = "MoqAndroid"
     private val configStore = AppConfigStore(application)
     private val initialRelayUrl = configStore.loadRelayUrl()
+    private val initialLanguage = configStore.loadLanguage()
+    private var appLanguage = initialLanguage
     private val publishController = PublishController(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
 
@@ -33,14 +38,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var configState by mutableStateOf(
         SettingsState(
             relayUrl = initialRelayUrl,
-            statusMessage = "Relay URL is required before using MoQScreenCast.",
+            statusMessage = text(R.string.relay_required),
+            language = initialLanguage,
         ),
     )
         private set
     var settingsState by mutableStateOf(
         SettingsState(
             relayUrl = initialRelayUrl,
-            statusMessage = "Update relay URL.",
+            statusMessage = text(R.string.update_relay_url),
+            language = initialLanguage,
         ),
     )
         private set
@@ -50,9 +57,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var currentScreen by mutableStateOf(AppScreen.Config)
         private set
-    var publishStatusMessage by mutableStateOf("Ready to publish screen.")
+    var publishStatusMessage by mutableStateOf(text(R.string.ready_publish_screen))
         private set
-    var subscribeStatusMessage by mutableStateOf("Ready to subscribe.")
+    var subscribeStatusMessage by mutableStateOf(text(R.string.ready_subscribe))
         private set
     var includeSystemAudio by mutableStateOf(false)
         private set
@@ -76,6 +83,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsStatusMessage: String
         get() = settingsState.statusMessage
 
+    val settingsLanguage: AppLanguage
+        get() = settingsState.language
+
+    val languageOptions: List<AppLanguage>
+        get() = AppLanguage.entries
+
     init {
         currentScreen = if (relayConfig.relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
         viewModelScope.launch {
@@ -91,6 +104,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettingsRelayUrl(value: String) {
         settingsState = settingsState.withRelayUrl(value)
+    }
+
+    fun updateSettingsLanguage(value: AppLanguage) {
+        appLanguage = value
+        configStore.saveLanguage(value)
+        settingsState = settingsState
+            .withLanguage(value)
+            .withStatus(text(R.string.language_set, text(value.labelRes)))
     }
 
     fun updatePublishBroadcast(value: String) {
@@ -116,7 +137,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         playerBroadcast = null
         settingsState = SettingsState(
             relayUrl = relayConfig.relayUrl,
-            statusMessage = "Update relay URL.",
+            statusMessage = text(R.string.update_relay_url),
+            language = settingsState.language,
         )
         currentScreen = AppScreen.Settings
     }
@@ -126,9 +148,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         relayConfig = nextRelayConfig
         settingsState = settingsState.withRelayUrl(nextRelayConfig.relayUrl)
+        configStore.saveLanguage(configState.language)
         configStore.saveRelayUrl(nextRelayConfig.relayUrl)
-        publishStatusMessage = "Relay saved. Ready to publish screen."
-        subscribeStatusMessage = "Relay saved. Ready to subscribe."
+        publishStatusMessage = text(R.string.relay_saved)
+        subscribeStatusMessage = text(R.string.relay_saved)
         showMainUi()
         return true
     }
@@ -137,10 +160,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val nextRelayConfig = relayConfigFromInput(settingsState.relayUrl, ::updateSettingsStatus) ?: return false
 
         relayConfig = nextRelayConfig
-        configState = configState.withRelayUrl(nextRelayConfig.relayUrl)
+        configState = configState
+            .withRelayUrl(nextRelayConfig.relayUrl)
+            .withLanguage(settingsState.language)
+            .withStatus(text(R.string.relay_required))
         configStore.saveRelayUrl(nextRelayConfig.relayUrl)
-        publishStatusMessage = "Relay updated."
-        subscribeStatusMessage = "Relay updated."
+        configStore.saveLanguage(settingsState.language)
+        publishStatusMessage = text(R.string.relay_updated)
+        subscribeStatusMessage = text(R.string.relay_updated)
         showMainUi()
         return true
     }
@@ -148,7 +175,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun prepareSubscribe(): String? {
         val nextBroadcast = subscribeBroadcastName.trim().trim('/')
         if (nextBroadcast.isEmpty()) {
-            updateSubscribeStatus("Broadcast name cannot be empty.")
+            updateSubscribeStatus(text(R.string.broadcast_empty))
             return null
         }
 
@@ -256,6 +283,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             publishStatusMessage = message
         }
+    }
+
+    private fun text(@StringRes resId: Int, vararg args: Any): String {
+        return getApplication<Application>()
+            .withAppLanguage(appLanguage)
+            .getString(resId, *args)
     }
 }
 
