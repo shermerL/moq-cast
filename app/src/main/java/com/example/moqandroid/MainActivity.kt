@@ -101,10 +101,12 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                             status = viewModel.settingsStatusMessage,
                             language = viewModel.settingsLanguage,
                             languageOptions = viewModel.languageOptions,
+                            publishCompatibilityMode = viewModel.settingsPublishCompatibilityMode,
                         ),
                         actions = RelaySettingsActions(
                             onRelayUrlChange = viewModel::updateSettingsRelayUrl,
                             onLanguageChange = viewModel::updateSettingsLanguage,
+                            onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
                             onSave = {
                                 if (viewModel.saveSettingsFromInput()) exitFullscreen()
                             },
@@ -141,7 +143,13 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         when (requestCode) {
             REQUEST_NOTIFICATIONS,
             REQUEST_RECORD_AUDIO,
-            -> requestScreenPublish()
+            -> {
+                if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    requestScreenPublish()
+                } else {
+                    viewModel.stopPublish(localizedText(R.string.screen_capture_permission_denied))
+                }
+            }
         }
     }
 

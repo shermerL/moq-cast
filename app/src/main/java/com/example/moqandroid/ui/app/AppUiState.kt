@@ -12,6 +12,7 @@ data class SettingsUiState(
     val status: String,
     val language: AppLanguage,
     val languageOptions: List<AppLanguage>,
+    val publishCompatibilityMode: Boolean,
 )
 
 data class RelayConfigActions(
@@ -56,6 +57,7 @@ data class MainTabsActions(
 data class RelaySettingsActions(
     val onRelayUrlChange: (String) -> Unit,
     val onLanguageChange: (AppLanguage) -> Unit,
+    val onPublishCompatibilityModeChange: (Boolean) -> Unit,
     val onSave: () -> Unit,
     val onBack: () -> Unit,
 )

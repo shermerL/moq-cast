@@ -4,10 +4,12 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Bundle
+import android.util.Log
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
 import com.example.moqandroid.publish.screen.SystemAudioConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -25,52 +27,112 @@ class SurfaceVideoEncoder(
         broadcastName: String,
         audioConfig: SystemAudioConfig,
     ) = withContext(Dispatchers.Default) {
-        val codec = MediaCodec.createEncoderByType(MIME_AVC)
-        var codecStarted = false
         val stats = PublishStatsTracker(relayUrl, broadcastName)
 
         try {
-            val format = MediaFormat.createVideoFormat(MIME_AVC, config.width, config.height).apply {
-                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
-                setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, config.iFrameIntervalSeconds)
-                setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-                }
-            }
-
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            val inputSurface = codec.createInputSurface()
-            codec.start()
-            codecStarted = true
-
-            source.attachEncoderSurface(inputSurface, config)
-            codec.setParameters(Bundle().apply {
-                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
-            })
-
-            status(
-                PublishState.Publishing(
-                    relayUrl = relayUrl,
-                    broadcastName = broadcastName,
-                    width = config.width,
-                    height = config.height,
-                    bitrate = config.bitrate,
-                    frameRate = config.frameRate,
-                    audioEnabled = audioConfig is SystemAudioConfig.Enabled,
-                ),
-            )
-            drain(codec, media, stats, status)
+            runAttempts(config, broadcastName, audioConfig, stats)
         } finally {
             status(PublishState.Stopping)
-            source.detachEncoderSurface()
-            if (codecStarted) runCatching { codec.stop() }
-            codec.release()
             runCatching { media.finish() }
         }
     }
+
+    private suspend fun runAttempts(
+        config: VideoPublishConfig,
+        broadcastName: String,
+        audioConfig: SystemAudioConfig,
+        stats: PublishStatsTracker,
+    ) {
+        var lastError: Throwable? = null
+        val attempts = config.encoderAttempts()
+        attempts.forEachIndexed { index, attempt ->
+            val isFallbackAvailable = index < attempts.lastIndex
+            var codec: MediaCodec? = null
+            var codecStarted = false
+            var sourceAttached = false
+            var encodingStarted = false
+
+            try {
+                codec = MediaCodec.createEncoderByType(MIME_AVC)
+                codec.configure(attempt.mediaFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                val inputSurface = codec.createInputSurface()
+                codec.start()
+                codecStarted = true
+
+                source.attachEncoderSurface(inputSurface, attempt.config)
+                sourceAttached = true
+                codec.setParameters(Bundle().apply {
+                    putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+                })
+
+                status(
+                    PublishState.Publishing(
+                        relayUrl = relayUrl,
+                        broadcastName = broadcastName,
+                        width = attempt.config.width,
+                        height = attempt.config.height,
+                        bitrate = attempt.config.bitrate,
+                        frameRate = attempt.config.frameRate,
+                        audioEnabled = audioConfig is SystemAudioConfig.Enabled,
+                    ),
+                )
+                encodingStarted = true
+                drain(codec, media, stats, status)
+                return
+            } catch (error: Throwable) {
+                if (error is CancellationException || encodingStarted || !isFallbackAvailable) throw error
+
+                lastError = error
+
+                Log.w(
+                    LOG_TAG,
+                    "H.264 encoder configure failed in compatibility mode, retrying with fallback " +
+                        "width=${attempt.config.width} height=${attempt.config.height} " +
+                        "fps=${attempt.config.frameRate} bitrate=${attempt.config.bitrate} " +
+                        "profile=${attempt.profileName}",
+                    error,
+                )
+            } finally {
+                if (sourceAttached) source.detachEncoderSurface()
+                if (codecStarted) runCatching { codec?.stop() }
+                codec?.release()
+            }
+        }
+
+        throw lastError ?: IllegalStateException("H.264 encoder did not start.")
+    }
+
+    private fun VideoPublishConfig.encoderAttempts(): List<EncoderAttempt> {
+        if (!compatibilityMode) return listOf(EncoderAttempt(this, profile = null, profileName = "default"))
+
+        return listOf(
+            EncoderAttempt(this, profile = MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline, profileName = "baseline"),
+            EncoderAttempt(alignForFallback(), profile = null, profileName = "default"),
+        )
+    }
+
+    private fun VideoPublishConfig.alignForFallback(): VideoPublishConfig {
+        return copy(
+            width = width.roundDownTo(FALLBACK_ALIGNMENT).coerceAtLeast(FALLBACK_ALIGNMENT),
+            height = height.roundDownTo(FALLBACK_ALIGNMENT).coerceAtLeast(FALLBACK_ALIGNMENT),
+        )
+    }
+
+    private fun EncoderAttempt.mediaFormat(): MediaFormat {
+        return MediaFormat.createVideoFormat(MIME_AVC, config.width, config.height).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, config.iFrameIntervalSeconds)
+            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+            profile?.let { setInteger(MediaFormat.KEY_PROFILE, it) }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+        }
+    }
+
+    private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
 
     private suspend fun drain(
         codec: MediaCodec,
@@ -139,6 +201,14 @@ class SurfaceVideoEncoder(
     }
 
     companion object {
+        private const val LOG_TAG = "MoqAndroid"
         private const val MIME_AVC = "video/avc"
+        private const val FALLBACK_ALIGNMENT = 32
     }
 }
+
+private data class EncoderAttempt(
+    val config: VideoPublishConfig,
+    val profile: Int?,
+    val profileName: String,
+)

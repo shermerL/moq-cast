@@ -19,6 +19,10 @@ class AppConfigStore(context: Context) {
         return AppLanguage.fromStorageValue(prefs.getString(KEY_LANGUAGE, null))
     }
 
+    fun loadPublishCompatibilityMode(): Boolean {
+        return prefs.getBoolean(KEY_PUBLISH_COMPATIBILITY_MODE, false)
+    }
+
     fun saveRelayUrl(relayUrl: String) {
         prefs.edit()
             .putString(KEY_RELAY_URL, relayUrl.trim())
@@ -31,9 +35,16 @@ class AppConfigStore(context: Context) {
             .apply()
     }
 
+    fun savePublishCompatibilityMode(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean(KEY_PUBLISH_COMPATIBILITY_MODE, enabled)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "moq_android_config"
         private const val KEY_RELAY_URL = "relay_url"
         private const val KEY_LANGUAGE = "language"
+        private const val KEY_PUBLISH_COMPATIBILITY_MODE = "publish_compatibility_mode"
     }
 }

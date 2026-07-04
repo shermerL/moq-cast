@@ -45,10 +45,13 @@ data class SettingsState(
     val relayUrl: String,
     val statusMessage: String,
     val language: AppLanguage = AppLanguage.English,
+    val publishCompatibilityMode: Boolean = false,
 ) {
     fun withRelayUrl(value: String): SettingsState = copy(relayUrl = value)
 
     fun withStatus(message: String): SettingsState = copy(statusMessage = message)
 
     fun withLanguage(value: AppLanguage): SettingsState = copy(language = value)
+
+    fun withPublishCompatibilityMode(value: Boolean): SettingsState = copy(publishCompatibilityMode = value)
 }

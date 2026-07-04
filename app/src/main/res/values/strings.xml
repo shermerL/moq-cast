@@ -18,6 +18,7 @@
     <string name="stop_publish">Stop publish</string>
     <string name="subscribe_action">Subscribe</string>
     <string name="general_section">General</string>
+    <string name="publish_section">Video encoding</string>
     <string name="connection_section">Connection</string>
     <string name="language_label">Language</string>
     <string name="language_options">Language options</string>
@@ -30,6 +31,7 @@
     <string name="ready_subscribe">Ready to subscribe.</string>
     <string name="relay_updated">Relay updated.</string>
     <string name="language_set">Language set to %1$s.</string>
+    <string name="publish_compatibility_mode">H.264 compatibility mode</string>
     <string name="broadcast_empty">Broadcast name cannot be empty.</string>
     <string name="screen_publish_stopped">Screen publish stopped.</string>
     <string name="screen_capture_permission_denied">Screen capture permission denied.</string>

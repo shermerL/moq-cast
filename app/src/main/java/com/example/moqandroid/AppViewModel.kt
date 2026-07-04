@@ -29,6 +29,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = AppConfigStore(application)
     private val initialRelayUrl = configStore.loadRelayUrl()
     private val initialLanguage = configStore.loadLanguage()
+    private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
     private var appLanguage = initialLanguage
     private val publishController = PublishController(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
@@ -40,6 +41,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             relayUrl = initialRelayUrl,
             statusMessage = text(R.string.relay_required),
             language = initialLanguage,
+            publishCompatibilityMode = initialPublishCompatibilityMode,
         ),
     )
         private set
@@ -48,6 +50,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             relayUrl = initialRelayUrl,
             statusMessage = text(R.string.update_relay_url),
             language = initialLanguage,
+            publishCompatibilityMode = initialPublishCompatibilityMode,
         ),
     )
         private set
@@ -86,6 +89,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsLanguage: AppLanguage
         get() = settingsState.language
 
+    val settingsPublishCompatibilityMode: Boolean
+        get() = settingsState.publishCompatibilityMode
+
     val languageOptions: List<AppLanguage>
         get() = AppLanguage.entries
 
@@ -114,6 +120,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .withStatus(text(R.string.language_set, text(value.labelRes)))
     }
 
+    fun updateSettingsPublishCompatibilityMode(value: Boolean) {
+        settingsState = settingsState.withPublishCompatibilityMode(value)
+    }
+
     fun updatePublishBroadcast(value: String) {
         publishBroadcastName = value
     }
@@ -139,6 +149,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             relayUrl = relayConfig.relayUrl,
             statusMessage = text(R.string.update_relay_url),
             language = settingsState.language,
+            publishCompatibilityMode = settingsState.publishCompatibilityMode,
         )
         currentScreen = AppScreen.Settings
     }
@@ -163,9 +174,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         configState = configState
             .withRelayUrl(nextRelayConfig.relayUrl)
             .withLanguage(settingsState.language)
+            .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
             .withStatus(text(R.string.relay_required))
         configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         configStore.saveLanguage(settingsState.language)
+        configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
         publishStatusMessage = text(R.string.relay_updated)
         subscribeStatusMessage = text(R.string.relay_updated)
         showMainUi()
@@ -213,6 +226,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             resultData = resultData,
             metrics = metrics,
             includeSystemAudio = includeSystemAudio,
+            compatibilityMode = configState.publishCompatibilityMode,
         )
     }
 

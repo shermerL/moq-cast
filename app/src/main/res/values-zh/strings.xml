@@ -18,6 +18,7 @@
     <string name="stop_publish">停止发布</string>
     <string name="subscribe_action">订阅</string>
     <string name="general_section">通用</string>
+    <string name="publish_section">视频编码</string>
     <string name="connection_section">连接</string>
     <string name="language_label">语言</string>
     <string name="language_options">语言选项</string>
@@ -30,6 +31,7 @@
     <string name="ready_subscribe">可以订阅。</string>
     <string name="relay_updated">Relay 已更新。</string>
     <string name="language_set">语言已设置为 %1$s。</string>
+    <string name="publish_compatibility_mode">H.264 兼容模式</string>
     <string name="broadcast_empty">Broadcast 名称不能为空。</string>
     <string name="screen_publish_stopped">屏幕发布已停止。</string>
     <string name="screen_capture_permission_denied">屏幕采集权限被拒绝。</string>

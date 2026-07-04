@@ -69,6 +69,7 @@ class PublishController(private val context: Context) {
         resultData: Intent,
         metrics: DisplayMetrics,
         includeSystemAudio: Boolean,
+        compatibilityMode: Boolean,
     ) {
         ScreenCaptureService.start(
             context = context,
@@ -76,7 +77,7 @@ class PublishController(private val context: Context) {
             broadcastName = broadcastName,
             resultCode = resultCode,
             resultData = resultData,
-            config = screenPublishConfig(metrics, includeSystemAudio),
+            config = screenPublishConfig(metrics, includeSystemAudio, compatibilityMode),
         )
     }
 
@@ -84,31 +85,39 @@ class PublishController(private val context: Context) {
         ScreenCaptureService.stop(context)
     }
 
-    private fun screenPublishConfig(metrics: DisplayMetrics, includeSystemAudio: Boolean): ScreenPublishConfig {
-        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels)
+    private fun screenPublishConfig(
+        metrics: DisplayMetrics,
+        includeSystemAudio: Boolean,
+        compatibilityMode: Boolean,
+    ): ScreenPublishConfig {
+        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels, compatibilityMode)
         return ScreenPublishConfig(
             video = ScreenVideoConfig(
                 width = width,
                 height = height,
                 densityDpi = metrics.densityDpi,
+                compatibilityMode = compatibilityMode,
             ),
             audio = if (includeSystemAudio) SystemAudioConfig.Enabled() else SystemAudioConfig.Disabled,
         )
     }
 
-    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int): Pair<Int, Int> {
+    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int, compatibilityMode: Boolean): Pair<Int, Int> {
         val longestEdge = maxOf(sourceWidth, sourceHeight)
         val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
-        val width = (sourceWidth * scale).toInt().roundDownToEven().coerceAtLeast(2)
-        val height = (sourceHeight * scale).toInt().roundDownToEven().coerceAtLeast(2)
+        val alignment = if (compatibilityMode) COMPATIBILITY_ALIGNMENT else DEFAULT_ALIGNMENT
+        val width = (sourceWidth * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
+        val height = (sourceHeight * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
         return width to height
     }
 
-    private fun Int.roundDownToEven(): Int = if (this % 2 == 0) this else this - 1
+    private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
 
     private companion object {
         private const val MIME_AVC = "video/avc"
         private const val MAX_PUBLISH_LONG_EDGE = 1080
+        private const val DEFAULT_ALIGNMENT = 2
+        private const val COMPATIBILITY_ALIGNMENT = 16
     }
 }
 

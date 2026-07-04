@@ -91,6 +91,7 @@ class ScreenCaptureService : Service() {
                 width = intent.getIntExtra(EXTRA_VIDEO_WIDTH, 1280),
                 height = intent.getIntExtra(EXTRA_VIDEO_HEIGHT, 720),
                 densityDpi = intent.getIntExtra(EXTRA_DENSITY_DPI, resources.displayMetrics.densityDpi),
+                compatibilityMode = intent.getBooleanExtra(EXTRA_COMPATIBILITY_MODE, false),
             ),
             audio = if (intent.getBooleanExtra(EXTRA_SYSTEM_AUDIO, false)) {
                 SystemAudioConfig.Enabled()
@@ -247,6 +248,7 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_VIDEO_HEIGHT = "video_height"
         private const val EXTRA_DENSITY_DPI = "density_dpi"
         private const val EXTRA_SYSTEM_AUDIO = "system_audio"
+        private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val NOTIFICATION_ID = 1002
 
         private val mutableStatus = MutableStateFlow<PublishState>(PublishState.Stopped)
@@ -270,6 +272,7 @@ class ScreenCaptureService : Service() {
                 .putExtra(EXTRA_VIDEO_HEIGHT, config.video.height)
                 .putExtra(EXTRA_DENSITY_DPI, config.video.densityDpi)
                 .putExtra(EXTRA_SYSTEM_AUDIO, config.audio is SystemAudioConfig.Enabled)
+                .putExtra(EXTRA_COMPATIBILITY_MODE, config.video.compatibilityMode)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -278,6 +281,10 @@ class ScreenCaptureService : Service() {
         }
 
         fun stop(context: Context) {
+            if (!mutableStatus.value.isActive) {
+                mutableStatus.value = PublishState.Stopped
+                return
+            }
             mutableStatus.value = PublishState.Stopping
             val intent = Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -290,6 +297,18 @@ class ScreenCaptureService : Service() {
         private fun updateStatus(state: PublishState) {
             mutableStatus.value = state
         }
+
+        private val PublishState.isActive: Boolean
+            get() = when (this) {
+                PublishState.Preparing,
+                is PublishState.Connecting,
+                is PublishState.Publishing,
+                is PublishState.Stats,
+                is PublishState.AudioFailed,
+                PublishState.Stopping -> true
+                PublishState.Stopped,
+                is PublishState.Failed -> false
+            }
     }
 
     @Suppress("DEPRECATION")

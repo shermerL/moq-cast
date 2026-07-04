@@ -26,6 +26,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -181,6 +182,14 @@ fun RelaySettings(
                         )
                     }
 
+                    SettingsSection(title = stringResource(R.string.publish_section)) {
+                        ToggleSettingRow(
+                            label = stringResource(R.string.publish_compatibility_mode),
+                            checked = state.publishCompatibilityMode,
+                            onCheckedChange = actions.onPublishCompatibilityModeChange,
+                        )
+                    }
+
                     SettingsSection(title = stringResource(R.string.connection_section)) {
                         RelayUrlSettingRow(
                             value = state.relayUrl,
@@ -248,6 +257,20 @@ private fun SettingRow(
         ) {
             control()
         }
+    }
+}
+
+@Composable
+private fun ToggleSettingRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    SettingRow(label = label) {
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 
