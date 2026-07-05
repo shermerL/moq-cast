@@ -5,7 +5,8 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Bundle
 import android.util.Log
-import com.example.moqandroid.publish.PublishState
+import com.example.moqandroid.publish.PublisherEvent
+import com.example.moqandroid.publish.PublisherState
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
 import com.example.moqandroid.publish.screen.SystemAudioConfig
@@ -20,7 +21,8 @@ class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
     private val media: MoqMediaStreamProducer,
     private val relayUrl: String,
-    private val status: (PublishState) -> Unit,
+    private val updateState: (PublisherState) -> Unit,
+    private val emitEvent: (PublisherEvent) -> Unit,
 ) {
     suspend fun run(
         config: VideoPublishConfig,
@@ -32,7 +34,7 @@ class SurfaceVideoEncoder(
         try {
             runAttempts(config, broadcastName, audioConfig, stats)
         } finally {
-            status(PublishState.Stopping)
+            updateState(PublisherState.Stopping)
             runCatching { media.finish() }
         }
     }
@@ -51,6 +53,7 @@ class SurfaceVideoEncoder(
             var codecStarted = false
             var sourceAttached = false
             var encodingStarted = false
+            var trackStarted = false
 
             try {
                 codec = MediaCodec.createEncoderByType(MIME_AVC)
@@ -65,8 +68,10 @@ class SurfaceVideoEncoder(
                     putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
                 })
 
-                status(
-                    PublishState.Publishing(
+                emitEvent(PublisherEvent.TrackStarted(VIDEO_TRACK_NAME))
+                trackStarted = true
+                updateState(
+                    PublisherState.Publishing(
                         relayUrl = relayUrl,
                         broadcastName = broadcastName,
                         width = attempt.config.width,
@@ -77,9 +82,12 @@ class SurfaceVideoEncoder(
                     ),
                 )
                 encodingStarted = true
-                drain(codec, media, stats, status)
+                drain(codec, media, stats, emitEvent)
                 return
             } catch (error: Throwable) {
+                if (encodingStarted && error !is CancellationException) {
+                    emitEvent(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
+                }
                 if (error is CancellationException || encodingStarted || !isFallbackAvailable) throw error
 
                 lastError = error
@@ -93,6 +101,7 @@ class SurfaceVideoEncoder(
                     error,
                 )
             } finally {
+                if (trackStarted) emitEvent(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
                 if (sourceAttached) source.detachEncoderSurface()
                 if (codecStarted) runCatching { codec?.stop() }
                 codec?.release()
@@ -138,7 +147,7 @@ class SurfaceVideoEncoder(
         codec: MediaCodec,
         media: MoqMediaStreamProducer,
         stats: PublishStatsTracker,
-        status: (PublishState) -> Unit,
+        emitEvent: (PublisherEvent) -> Unit,
     ) {
         val info = MediaCodec.BufferInfo()
         var codecConfig: ByteArray? = null
@@ -163,7 +172,7 @@ class SurfaceVideoEncoder(
 
                         val frame = if (flags.hasKeyFrame()) annexB.withParameterSets(codecConfig) else annexB
                         media.write(frame)
-                        stats.onFrame(frame.size) { status(it) }
+                        stats.onFrame(frame.size, emitEvent)
                     }
                 }
             }
@@ -204,6 +213,7 @@ class SurfaceVideoEncoder(
         private const val LOG_TAG = "MoqAndroid"
         private const val MIME_AVC = "video/avc"
         private const val FALLBACK_ALIGNMENT = 32
+        private const val VIDEO_TRACK_NAME = "video"
     }
 }
 

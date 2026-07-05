@@ -19,15 +19,15 @@ import com.example.moqandroid.R
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishState
+import com.example.moqandroid.publish.PublishStatusFacade
+import com.example.moqandroid.publish.PublisherState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 
@@ -62,7 +62,7 @@ class ScreenCaptureService : Service() {
         if (intent?.action == ACTION_START_PUBLISH) {
             startPublishing(intent)
         } else if (intent == null) {
-            updateStatus(PublishState.Failed(getString(R.string.screen_publish_service_restarted)))
+            updateState(PublisherState.Error(getString(R.string.screen_publish_service_restarted)))
             stopSelf()
         }
 
@@ -73,7 +73,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         Log.i(LOG_TAG, "screen capture service destroyed")
-        stopPublishing(updateStopped = mutableStatus.value !is PublishState.Failed)
+        stopPublishing(updateStopped = statusFacade.uiState.value !is PublishState.Failed)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -101,7 +101,7 @@ class ScreenCaptureService : Service() {
         )
 
         if (relayUrl.isBlank() || broadcastName.isBlank() || resultData == null) {
-            updateStatus(PublishState.Failed(getString(R.string.screen_publish_service_missing_args)))
+            updateState(PublisherState.Error(getString(R.string.screen_publish_service_missing_args)))
             stopSelf()
             return
         }
@@ -116,7 +116,8 @@ class ScreenCaptureService : Service() {
                 try {
                     MoqPublishSession(
                         relayUrl = relayUrl,
-                        status = ::updateStatus,
+                        updateState = ::updateState,
+                        emitEvent = statusFacade::updateEvent,
                     ).publish(
                         source = ScreenPublishSource(projection, config.video.densityDpi),
                         broadcastName = broadcastName,
@@ -134,11 +135,11 @@ class ScreenCaptureService : Service() {
             }.onFailure { error ->
                 if (error is CancellationException) {
                     Log.i(LOG_TAG, "screen publish cancelled: ${error.message}")
-                    if (generation == publishGeneration) updateStatus(PublishState.Stopped)
+                    if (generation == publishGeneration) updateState(PublisherState.Stopped)
                 } else {
                     Log.w(LOG_TAG, "screen publish failed", error)
                     if (generation == publishGeneration) {
-                        updateStatus(PublishState.Failed(error.message ?: error::class.java.name))
+                        updateState(PublisherState.Error(error.message ?: error::class.java.name))
                     }
                 }
             }.also {
@@ -170,10 +171,10 @@ class ScreenCaptureService : Service() {
 
     private fun stopPublishing(updateStopped: Boolean) {
         publishGeneration += 1
-        updateStatus(PublishState.Stopping)
+        updateState(PublisherState.Stopping)
         publishJob?.cancel(CancellationException("Screen publish stopped."))
         publishJob = null
-        if (updateStopped) updateStatus(PublishState.Stopped)
+        if (updateStopped) updateState(PublisherState.Stopped)
     }
 
     private fun startForegroundService(relayUrl: String, broadcastName: String) {
@@ -251,8 +252,8 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val NOTIFICATION_ID = 1002
 
-        private val mutableStatus = MutableStateFlow<PublishState>(PublishState.Stopped)
-        val status: StateFlow<PublishState> = mutableStatus.asStateFlow()
+        private val statusFacade = PublishStatusFacade()
+        val status: StateFlow<PublishState> = statusFacade.uiState
 
         fun start(
             context: Context,
@@ -281,11 +282,11 @@ class ScreenCaptureService : Service() {
         }
 
         fun stop(context: Context) {
-            if (!mutableStatus.value.isActive) {
-                mutableStatus.value = PublishState.Stopped
+            if (!statusFacade.isActive) {
+                statusFacade.updateState(PublisherState.Stopped)
                 return
             }
-            mutableStatus.value = PublishState.Stopping
+            statusFacade.updateState(PublisherState.Stopping)
             val intent = Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -294,21 +295,9 @@ class ScreenCaptureService : Service() {
             }
         }
 
-        private fun updateStatus(state: PublishState) {
-            mutableStatus.value = state
+        private fun updateState(state: PublisherState) {
+            statusFacade.updateState(state)
         }
-
-        private val PublishState.isActive: Boolean
-            get() = when (this) {
-                PublishState.Preparing,
-                is PublishState.Connecting,
-                is PublishState.Publishing,
-                is PublishState.Stats,
-                is PublishState.AudioFailed,
-                PublishState.Stopping -> true
-                PublishState.Stopped,
-                is PublishState.Failed -> false
-            }
     }
 
     @Suppress("DEPRECATION")

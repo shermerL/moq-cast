@@ -16,7 +16,8 @@ import uniffi.moq.MoqOriginProducer
 
 class MoqPublishSession(
     private val relayUrl: String,
-    private val status: (PublishState) -> Unit,
+    private val updateState: (PublisherState) -> Unit,
+    private val emitEvent: (PublisherEvent) -> Unit,
 ) {
     suspend fun publish(
         source: VideoPublishSource,
@@ -24,7 +25,7 @@ class MoqPublishSession(
         config: PublishSessionConfig,
         audioCapture: (suspend CoroutineScope.(MoqAudioProducer, SystemAudioConfig.Enabled) -> Unit)? = null,
     ) {
-        status(PublishState.Preparing)
+        updateState(PublisherState.Preparing)
 
         try {
             MoqBroadcastProducer().use { broadcast ->
@@ -41,7 +42,7 @@ class MoqPublishSession(
                 MoqOriginProducer().use { origin ->
                     MoqClient().use { client ->
                         client.setPublish(origin)
-                        status(PublishState.Connecting(relayUrl, broadcastName))
+                        updateState(PublisherState.Connecting(relayUrl, broadcastName))
                         client.connect(relayUrl).use { session ->
                             try {
                                 origin.publish(broadcastName, broadcast)
@@ -54,7 +55,12 @@ class MoqPublishSession(
                                             }.onFailure { error ->
                                                 if (error !is CancellationException) {
                                                     Log.w(LOG_TAG, "system audio capture failed", error)
-                                                    status(PublishState.AudioFailed(error.message ?: error::class.java.name))
+                                                    emitEvent(
+                                                        PublisherEvent.TrackError(
+                                                            name = AUDIO_TRACK_NAME,
+                                                            reason = error.message ?: error::class.java.name,
+                                                        ),
+                                                    )
                                                 }
                                             }.also {
                                                 runCatching { producer.finish() }
@@ -63,7 +69,13 @@ class MoqPublishSession(
                                     }
 
                                     try {
-                                        SurfaceVideoEncoder(source, media, relayUrl, status).run(config.video, broadcastName, config.audio)
+                                        SurfaceVideoEncoder(
+                                            source = source,
+                                            media = media,
+                                            relayUrl = relayUrl,
+                                            updateState = updateState,
+                                            emitEvent = emitEvent,
+                                        ).run(config.video, broadcastName, config.audio)
                                     } finally {
                                         audioJob?.cancel()
                                     }
@@ -80,11 +92,12 @@ class MoqPublishSession(
             source.close()
         }
 
-        status(PublishState.Stopped)
+        updateState(PublisherState.Stopped)
     }
 
     companion object {
         private const val LOG_TAG = "MoqAndroid"
+        private const val AUDIO_TRACK_NAME = "audio"
     }
 }
 
