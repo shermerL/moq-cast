@@ -36,6 +36,19 @@ sealed class PublisherEvent {
     ) : PublisherEvent()
 }
 
+class PublisherLifecycleEventSink(
+    private val update: (PublisherState) -> Unit,
+    private val emit: (PublisherEvent) -> Unit,
+) {
+    fun update(state: PublisherState) {
+        update.invoke(state)
+    }
+
+    fun emit(event: PublisherEvent) {
+        emit.invoke(event)
+    }
+}
+
 class PublishStatusFacade {
     private val mutableUiState = MutableStateFlow<PublishState>(PublishState.Stopped)
     private var publisherState: PublisherState = PublisherState.Idle
@@ -56,20 +69,55 @@ class PublishStatusFacade {
             -> true
         }
 
-    val isError: Boolean
-        get() = publisherState is PublisherState.Error
+    val canReportStopped: Boolean
+        get() = publisherState !is PublisherState.Error
 
     fun updateState(state: PublisherState) {
         publisherState = state
         mutableUiState.value = state.toPublishState()
     }
 
-    fun stopIfActive() {
-        if (isActive) updateState(PublisherState.Stopping)
+    fun requestStop(): Boolean {
+        if (!isActive) return false
+        updateState(PublisherState.Stopping)
+        return true
+    }
+
+    fun markStopped() {
+        updateState(PublisherState.Stopped)
+    }
+
+    fun fail(reason: String) {
+        updateState(PublisherState.Error(reason))
+    }
+
+    fun eventSink(): PublisherLifecycleEventSink {
+        return PublisherLifecycleEventSink(::updateState, ::updateEvent)
     }
 
     fun updateEvent(event: PublisherEvent) {
+        if (!canApply(event)) return
+        if (event is PublisherEvent.TrackError && event.name != AUDIO_TRACK_NAME) {
+            publisherState = PublisherState.Error(event.reason)
+        }
         mutableUiState.value = event.toPublishState() ?: return
+    }
+
+    private fun canApply(event: PublisherEvent): Boolean {
+        return when (publisherState) {
+            PublisherState.Idle,
+            PublisherState.Stopped,
+            is PublisherState.Error,
+            -> false
+
+            PublisherState.Preparing,
+            is PublisherState.Connecting,
+            -> event is PublisherEvent.TrackError
+
+            is PublisherState.Publishing -> true
+
+            PublisherState.Stopping -> event is PublisherEvent.TrackError
+        }
     }
 
     private fun PublisherState.toPublishState(): PublishState = when (this) {

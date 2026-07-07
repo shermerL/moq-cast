@@ -20,7 +20,6 @@ import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFacade
-import com.example.moqandroid.publish.PublisherState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +61,7 @@ class ScreenCaptureService : Service() {
         if (intent?.action == ACTION_START_PUBLISH) {
             startPublishing(intent)
         } else if (intent == null) {
-            updateState(PublisherState.Error(getString(R.string.screen_publish_service_restarted)))
+            statusFacade.fail(getString(R.string.screen_publish_service_restarted))
             stopSelf()
         }
 
@@ -73,7 +72,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         Log.i(LOG_TAG, "screen capture service destroyed")
-        stopPublishing(updateStopped = !statusFacade.isError)
+        stopPublishing(updateStopped = statusFacade.canReportStopped)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -101,7 +100,7 @@ class ScreenCaptureService : Service() {
         )
 
         if (relayUrl.isBlank() || broadcastName.isBlank() || resultData == null) {
-            updateState(PublisherState.Error(getString(R.string.screen_publish_service_missing_args)))
+            statusFacade.fail(getString(R.string.screen_publish_service_missing_args))
             stopSelf()
             return
         }
@@ -116,8 +115,7 @@ class ScreenCaptureService : Service() {
                 try {
                     MoqPublishSession(
                         relayUrl = relayUrl,
-                        updateState = ::updateState,
-                        emitEvent = statusFacade::updateEvent,
+                        lifecycle = statusFacade.eventSink(),
                     ).publish(
                         source = ScreenPublishSource(projection, config.video.densityDpi),
                         broadcastName = broadcastName,
@@ -135,11 +133,11 @@ class ScreenCaptureService : Service() {
             }.onFailure { error ->
                 if (error is CancellationException) {
                     Log.i(LOG_TAG, "screen publish cancelled: ${error.message}")
-                    if (generation == publishGeneration) updateState(PublisherState.Stopped)
+                    if (generation == publishGeneration) statusFacade.markStopped()
                 } else {
                     Log.w(LOG_TAG, "screen publish failed", error)
                     if (generation == publishGeneration) {
-                        updateState(PublisherState.Error(error.message ?: error::class.java.name))
+                        statusFacade.fail(error.message ?: error::class.java.name)
                     }
                 }
             }.also {
@@ -171,10 +169,10 @@ class ScreenCaptureService : Service() {
 
     private fun stopPublishing(updateStopped: Boolean) {
         publishGeneration += 1
-        statusFacade.stopIfActive()
+        statusFacade.requestStop()
         publishJob?.cancel(CancellationException("Screen publish stopped."))
         publishJob = null
-        if (updateStopped) updateState(PublisherState.Stopped)
+        if (updateStopped) statusFacade.markStopped()
     }
 
     private fun startForegroundService(relayUrl: String, broadcastName: String) {
@@ -282,11 +280,10 @@ class ScreenCaptureService : Service() {
         }
 
         fun stop(context: Context) {
-            if (!statusFacade.isActive) {
-                statusFacade.updateState(PublisherState.Stopped)
+            if (!statusFacade.requestStop()) {
+                statusFacade.markStopped()
                 return
             }
-            statusFacade.updateState(PublisherState.Stopping)
             val intent = Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -295,9 +292,6 @@ class ScreenCaptureService : Service() {
             }
         }
 
-        private fun updateState(state: PublisherState) {
-            statusFacade.updateState(state)
-        }
     }
 
     @Suppress("DEPRECATION")

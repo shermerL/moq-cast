@@ -16,8 +16,7 @@ import uniffi.moq.MoqOriginProducer
 
 class MoqPublishSession(
     private val relayUrl: String,
-    private val updateState: (PublisherState) -> Unit,
-    private val emitEvent: (PublisherEvent) -> Unit,
+    private val lifecycle: PublisherLifecycleEventSink,
 ) {
     suspend fun publish(
         source: VideoPublishSource,
@@ -25,7 +24,7 @@ class MoqPublishSession(
         config: PublishSessionConfig,
         audioCapture: (suspend CoroutineScope.(MoqAudioProducer, SystemAudioConfig.Enabled) -> Unit)? = null,
     ) {
-        updateState(PublisherState.Preparing)
+        lifecycle.update(PublisherState.Preparing)
 
         try {
             MoqBroadcastProducer().use { broadcast ->
@@ -42,7 +41,7 @@ class MoqPublishSession(
                 MoqOriginProducer().use { origin ->
                     MoqClient().use { client ->
                         client.setPublish(origin)
-                        updateState(PublisherState.Connecting(relayUrl, broadcastName))
+                        lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
                         client.connect(relayUrl).use { session ->
                             try {
                                 origin.publish(broadcastName, broadcast)
@@ -55,7 +54,7 @@ class MoqPublishSession(
                                             }.onFailure { error ->
                                                 if (error !is CancellationException) {
                                                     Log.w(LOG_TAG, "system audio capture failed", error)
-                                                    emitEvent(
+                                                    lifecycle.emit(
                                                         PublisherEvent.TrackError(
                                                             name = AUDIO_TRACK_NAME,
                                                             reason = error.message ?: error::class.java.name,
@@ -73,8 +72,7 @@ class MoqPublishSession(
                                             source = source,
                                             media = media,
                                             relayUrl = relayUrl,
-                                            updateState = updateState,
-                                            emitEvent = emitEvent,
+                                            lifecycle = lifecycle,
                                         ).run(config.video, broadcastName, config.audio)
                                     } finally {
                                         audioJob?.cancel()
@@ -92,7 +90,7 @@ class MoqPublishSession(
             source.close()
         }
 
-        updateState(PublisherState.Stopped)
+        lifecycle.update(PublisherState.Stopped)
     }
 
     companion object {

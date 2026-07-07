@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.os.Bundle
 import android.util.Log
 import com.example.moqandroid.publish.PublisherEvent
+import com.example.moqandroid.publish.PublisherLifecycleEventSink
 import com.example.moqandroid.publish.PublisherState
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
@@ -21,8 +22,7 @@ class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
     private val media: MoqMediaStreamProducer,
     private val relayUrl: String,
-    private val updateState: (PublisherState) -> Unit,
-    private val emitEvent: (PublisherEvent) -> Unit,
+    private val lifecycle: PublisherLifecycleEventSink,
 ) {
     suspend fun run(
         config: VideoPublishConfig,
@@ -34,7 +34,7 @@ class SurfaceVideoEncoder(
         try {
             runAttempts(config, broadcastName, audioConfig, stats)
         } finally {
-            updateState(PublisherState.Stopping)
+            lifecycle.update(PublisherState.Stopping)
             runCatching { media.finish() }
         }
     }
@@ -68,9 +68,9 @@ class SurfaceVideoEncoder(
                     putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
                 })
 
-                emitEvent(PublisherEvent.TrackStarted(VIDEO_TRACK_NAME))
+                lifecycle.emit(PublisherEvent.TrackStarted(VIDEO_TRACK_NAME))
                 trackStarted = true
-                updateState(
+                lifecycle.update(
                     PublisherState.Publishing(
                         relayUrl = relayUrl,
                         broadcastName = broadcastName,
@@ -82,11 +82,11 @@ class SurfaceVideoEncoder(
                     ),
                 )
                 encodingStarted = true
-                drain(codec, media, stats, emitEvent)
+                drain(codec, media, stats, lifecycle)
                 return
             } catch (error: Throwable) {
                 if (encodingStarted && error !is CancellationException) {
-                    emitEvent(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
+                    lifecycle.emit(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
                 }
                 if (error is CancellationException || encodingStarted || !isFallbackAvailable) throw error
 
@@ -101,7 +101,7 @@ class SurfaceVideoEncoder(
                     error,
                 )
             } finally {
-                if (trackStarted) emitEvent(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
+                if (trackStarted) lifecycle.emit(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
                 if (sourceAttached) source.detachEncoderSurface()
                 if (codecStarted) runCatching { codec?.stop() }
                 codec?.release()
@@ -147,7 +147,7 @@ class SurfaceVideoEncoder(
         codec: MediaCodec,
         media: MoqMediaStreamProducer,
         stats: PublishStatsTracker,
-        emitEvent: (PublisherEvent) -> Unit,
+        lifecycle: PublisherLifecycleEventSink,
     ) {
         val info = MediaCodec.BufferInfo()
         var codecConfig: ByteArray? = null
@@ -172,7 +172,7 @@ class SurfaceVideoEncoder(
 
                         val frame = if (flags.hasKeyFrame()) annexB.withParameterSets(codecConfig) else annexB
                         media.write(frame)
-                        stats.onFrame(frame.size, emitEvent)
+                        stats.onFrame(frame.size, lifecycle::emit)
                     }
                 }
             }
