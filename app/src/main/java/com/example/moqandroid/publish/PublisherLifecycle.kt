@@ -77,6 +77,10 @@ class PublishStatusFacade {
         mutableUiState.value = state.toPublishState()
     }
 
+    fun prepare() {
+        updateState(PublisherState.Preparing)
+    }
+
     fun requestStop(): Boolean {
         if (!isActive) return false
         updateState(PublisherState.Stopping)

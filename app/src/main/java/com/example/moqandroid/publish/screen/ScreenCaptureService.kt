@@ -292,6 +292,14 @@ class ScreenCaptureService : Service() {
             }
         }
 
+        fun prepare() {
+            statusFacade.prepare()
+        }
+
+        fun fail(reason: String) {
+            statusFacade.fail(reason)
+        }
+
     }
 
     @Suppress("DEPRECATION")

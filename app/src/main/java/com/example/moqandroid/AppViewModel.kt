@@ -256,6 +256,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
 
+    fun failPublish(message: String) {
+        publishController.fail(message)
+    }
+
     override fun onCleared() {
         Log.i(logTag, "AppViewModel cleared")
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")

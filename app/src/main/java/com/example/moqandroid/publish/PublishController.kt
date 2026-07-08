@@ -41,6 +41,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (includeSystemAudio && !hasRecordAudioPermission) {
+            ScreenCaptureService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
                 broadcastName,
@@ -48,6 +49,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+            ScreenCaptureService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestNotifications,
                 broadcastName,
@@ -55,6 +57,7 @@ class PublishController(private val context: Context) {
             )
         }
 
+        ScreenCaptureService.prepare()
         return PublishPreparation(
             PublishRequest.RequestScreenCapture,
             broadcastName,
@@ -83,6 +86,10 @@ class PublishController(private val context: Context) {
 
     fun stop() {
         ScreenCaptureService.stop(context)
+    }
+
+    fun fail(reason: String) {
+        ScreenCaptureService.fail(reason)
     }
 
     private fun screenPublishConfig(

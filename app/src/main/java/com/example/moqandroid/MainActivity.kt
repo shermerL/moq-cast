@@ -147,7 +147,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                 if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                     requestScreenPublish()
                 } else {
-                    viewModel.stopPublish(localizedText(R.string.screen_capture_permission_denied))
+                    viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
                 }
             }
         }
@@ -159,7 +159,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (requestCode != REQUEST_SCREEN_CAPTURE) return
 
         if (resultCode != RESULT_OK || data == null) {
-            viewModel.stopPublish(localizedText(R.string.screen_capture_permission_denied))
+            viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
             return
         }
 
