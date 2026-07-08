@@ -1,6 +1,8 @@
 package com.example.moqandroid.publish.screen
 
 import com.example.moqandroid.publish.VideoPublishConfig
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
+import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 
 data class ScreenPublishConfig(
     val video: ScreenVideoConfig,
@@ -14,7 +16,8 @@ data class ScreenVideoConfig(
     val bitrate: Int = 4_000_000,
     val frameRate: Int = 30,
     val iFrameIntervalSeconds: Int = 1,
-    val compatibilityMode: Boolean = false,
+    val encoderPolicy: VideoEncoderPolicy = VideoEncoderPolicy.Default,
+    val h264ProfilePreference: H264ProfilePreference = H264ProfilePreference.High,
 )
 
 fun ScreenVideoConfig.encoderConfig(): VideoPublishConfig {
@@ -24,7 +27,8 @@ fun ScreenVideoConfig.encoderConfig(): VideoPublishConfig {
         bitrate = bitrate,
         frameRate = frameRate,
         iFrameIntervalSeconds = iFrameIntervalSeconds,
-        compatibilityMode = compatibilityMode,
+        encoderPolicy = encoderPolicy,
+        h264ProfilePreference = h264ProfilePreference,
     )
 }
 

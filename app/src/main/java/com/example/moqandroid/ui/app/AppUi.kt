@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.moqandroid.R
 import com.example.moqandroid.config.AppLanguage
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.ui.components.ClearFocusOnEntry
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.Page
@@ -188,6 +189,11 @@ fun RelaySettings(
                             checked = state.publishCompatibilityMode,
                             onCheckedChange = actions.onPublishCompatibilityModeChange,
                         )
+                        H264ProfileSettingRow(
+                            selected = state.h264ProfilePreference,
+                            options = state.h264ProfileOptions,
+                            onSelected = actions.onH264ProfilePreferenceChange,
+                        )
                     }
 
                     SettingsSection(title = stringResource(R.string.connection_section)) {
@@ -271,6 +277,60 @@ private fun ToggleSettingRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
         )
+    }
+}
+
+@Composable
+private fun H264ProfileSettingRow(
+    selected: H264ProfilePreference,
+    options: List<H264ProfilePreference>,
+    onSelected: (H264ProfilePreference) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    SettingRow(label = stringResource(R.string.h264_profile_label)) {
+        Box {
+            Surface(
+                color = SurfaceMuted,
+                shape = RoundedCornerShape(8.dp),
+                tonalElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clickable { expanded = true },
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 14.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(selected.labelRes),
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = stringResource(R.string.h264_profile_options),
+                        tint = TextSecondary,
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                options.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(profile.labelRes)) },
+                        onClick = {
+                            expanded = false
+                            onSelected(profile)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 

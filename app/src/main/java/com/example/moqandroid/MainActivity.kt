@@ -102,11 +102,14 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                             language = viewModel.settingsLanguage,
                             languageOptions = viewModel.languageOptions,
                             publishCompatibilityMode = viewModel.settingsPublishCompatibilityMode,
+                            h264ProfilePreference = viewModel.settingsH264ProfilePreference,
+                            h264ProfileOptions = viewModel.h264ProfileOptions,
                         ),
                         actions = RelaySettingsActions(
                             onRelayUrlChange = viewModel::updateSettingsRelayUrl,
                             onLanguageChange = viewModel::updateSettingsLanguage,
                             onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
+                            onH264ProfilePreferenceChange = viewModel::updateSettingsH264ProfilePreference,
                             onSave = {
                                 if (viewModel.saveSettingsFromInput()) exitFullscreen()
                             },

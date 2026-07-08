@@ -1,6 +1,7 @@
 package com.example.moqandroid.ui.app
 
 import com.example.moqandroid.config.AppLanguage
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
 data class RelayConfigUiState(
     val relayUrl: String,
@@ -13,6 +14,8 @@ data class SettingsUiState(
     val language: AppLanguage,
     val languageOptions: List<AppLanguage>,
     val publishCompatibilityMode: Boolean,
+    val h264ProfilePreference: H264ProfilePreference,
+    val h264ProfileOptions: List<H264ProfilePreference>,
 )
 
 data class RelayConfigActions(
@@ -58,6 +61,7 @@ data class RelaySettingsActions(
     val onRelayUrlChange: (String) -> Unit,
     val onLanguageChange: (AppLanguage) -> Unit,
     val onPublishCompatibilityModeChange: (Boolean) -> Unit,
+    val onH264ProfilePreferenceChange: (H264ProfilePreference) -> Unit,
     val onSave: () -> Unit,
     val onBack: () -> Unit,
 )

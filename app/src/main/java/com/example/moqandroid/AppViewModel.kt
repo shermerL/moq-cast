@@ -22,6 +22,8 @@ import com.example.moqandroid.publish.PublishController
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFormatter
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
+import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -31,6 +33,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialRelayUrl = configStore.loadRelayUrl()
     private val initialLanguage = configStore.loadLanguage()
     private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
+    private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
     private var appLanguage = initialLanguage
     private val publishController = PublishController(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
@@ -43,6 +46,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             statusMessage = text(R.string.relay_required),
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
+            h264ProfilePreference = initialH264ProfilePreference,
         ),
     )
         private set
@@ -52,6 +56,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             statusMessage = text(R.string.update_relay_url),
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
+            h264ProfilePreference = initialH264ProfilePreference,
         ),
     )
         private set
@@ -93,8 +98,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsPublishCompatibilityMode: Boolean
         get() = settingsState.publishCompatibilityMode
 
+    val settingsH264ProfilePreference: H264ProfilePreference
+        get() = settingsState.h264ProfilePreference
+
     val languageOptions: List<AppLanguage>
         get() = AppLanguage.entries
+
+    val h264ProfileOptions: List<H264ProfilePreference>
+        get() = H264ProfilePreference.entries
 
     init {
         currentScreen = if (relayConfig.relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
@@ -125,6 +136,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         settingsState = settingsState.withPublishCompatibilityMode(value)
     }
 
+    fun updateSettingsH264ProfilePreference(value: H264ProfilePreference) {
+        settingsState = settingsState.withH264ProfilePreference(value)
+    }
+
     fun updatePublishBroadcast(value: String) {
         publishBroadcastName = value
     }
@@ -151,6 +166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             statusMessage = text(R.string.update_relay_url),
             language = settingsState.language,
             publishCompatibilityMode = settingsState.publishCompatibilityMode,
+            h264ProfilePreference = settingsState.h264ProfilePreference,
         )
         currentScreen = AppScreen.Settings
     }
@@ -176,10 +192,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .withRelayUrl(nextRelayConfig.relayUrl)
             .withLanguage(settingsState.language)
             .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
+            .withH264ProfilePreference(settingsState.h264ProfilePreference)
             .withStatus(text(R.string.relay_required))
         configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         configStore.saveLanguage(settingsState.language)
         configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
+        configStore.saveH264ProfilePreference(settingsState.h264ProfilePreference)
         publishStatusMessage = text(R.string.relay_updated)
         subscribeStatusMessage = text(R.string.relay_updated)
         showMainUi()
@@ -227,7 +245,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             resultData = resultData,
             metrics = metrics,
             includeSystemAudio = includeSystemAudio,
-            compatibilityMode = configState.publishCompatibilityMode,
+            encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
+            h264ProfilePreference = configState.h264ProfilePreference,
         )
     }
 

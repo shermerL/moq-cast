@@ -1,6 +1,7 @@
 package com.example.moqandroid.config
 
 import android.content.Context
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
 // Optional default for local development. Leave empty to require setup on first launch.
 const val DEFAULT_RELAY_URL = ""
@@ -23,6 +24,10 @@ class AppConfigStore(context: Context) {
         return prefs.getBoolean(KEY_PUBLISH_COMPATIBILITY_MODE, false)
     }
 
+    fun loadH264ProfilePreference(): H264ProfilePreference {
+        return H264ProfilePreference.fromStorageValue(prefs.getString(KEY_H264_PROFILE, null))
+    }
+
     fun saveRelayUrl(relayUrl: String) {
         prefs.edit()
             .putString(KEY_RELAY_URL, relayUrl.trim())
@@ -41,10 +46,17 @@ class AppConfigStore(context: Context) {
             .apply()
     }
 
+    fun saveH264ProfilePreference(preference: H264ProfilePreference) {
+        prefs.edit()
+            .putString(KEY_H264_PROFILE, preference.storageValue)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "moq_android_config"
         private const val KEY_RELAY_URL = "relay_url"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_PUBLISH_COMPATIBILITY_MODE = "publish_compatibility_mode"
+        private const val KEY_H264_PROFILE = "h264_profile"
     }
 }

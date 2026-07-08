@@ -6,6 +6,8 @@ import android.os.Build
 import android.util.DisplayMetrics
 import com.example.moqandroid.config.RelayConfig
 import com.example.moqandroid.media.codec.CodecSupport
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
+import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.publish.screen.ScreenCaptureService
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
@@ -72,7 +74,8 @@ class PublishController(private val context: Context) {
         resultData: Intent,
         metrics: DisplayMetrics,
         includeSystemAudio: Boolean,
-        compatibilityMode: Boolean,
+        encoderPolicy: VideoEncoderPolicy,
+        h264ProfilePreference: H264ProfilePreference,
     ) {
         ScreenCaptureService.start(
             context = context,
@@ -80,7 +83,7 @@ class PublishController(private val context: Context) {
             broadcastName = broadcastName,
             resultCode = resultCode,
             resultData = resultData,
-            config = screenPublishConfig(metrics, includeSystemAudio, compatibilityMode),
+            config = screenPublishConfig(metrics, includeSystemAudio, encoderPolicy, h264ProfilePreference),
         )
     }
 
@@ -95,24 +98,26 @@ class PublishController(private val context: Context) {
     private fun screenPublishConfig(
         metrics: DisplayMetrics,
         includeSystemAudio: Boolean,
-        compatibilityMode: Boolean,
+        encoderPolicy: VideoEncoderPolicy,
+        h264ProfilePreference: H264ProfilePreference,
     ): ScreenPublishConfig {
-        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels, compatibilityMode)
+        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels, encoderPolicy)
         return ScreenPublishConfig(
             video = ScreenVideoConfig(
                 width = width,
                 height = height,
                 densityDpi = metrics.densityDpi,
-                compatibilityMode = compatibilityMode,
+                encoderPolicy = encoderPolicy,
+                h264ProfilePreference = h264ProfilePreference,
             ),
             audio = if (includeSystemAudio) SystemAudioConfig.Enabled() else SystemAudioConfig.Disabled,
         )
     }
 
-    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int, compatibilityMode: Boolean): Pair<Int, Int> {
+    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int, encoderPolicy: VideoEncoderPolicy): Pair<Int, Int> {
         val longestEdge = maxOf(sourceWidth, sourceHeight)
         val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
-        val alignment = if (compatibilityMode) COMPATIBILITY_ALIGNMENT else DEFAULT_ALIGNMENT
+        val alignment = encoderPolicy.dimensionAlignment
         val width = (sourceWidth * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
         val height = (sourceHeight * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
         return width to height
@@ -123,8 +128,6 @@ class PublishController(private val context: Context) {
     private companion object {
         private const val MIME_AVC = "video/avc"
         private const val MAX_PUBLISH_LONG_EDGE = 1080
-        private const val DEFAULT_ALIGNMENT = 2
-        private const val COMPATIBILITY_ALIGNMENT = 16
     }
 }
 

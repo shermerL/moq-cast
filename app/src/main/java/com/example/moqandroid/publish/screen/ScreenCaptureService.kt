@@ -20,6 +20,8 @@ import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFacade
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
+import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,7 +92,8 @@ class ScreenCaptureService : Service() {
                 width = intent.getIntExtra(EXTRA_VIDEO_WIDTH, 1280),
                 height = intent.getIntExtra(EXTRA_VIDEO_HEIGHT, 720),
                 densityDpi = intent.getIntExtra(EXTRA_DENSITY_DPI, resources.displayMetrics.densityDpi),
-                compatibilityMode = intent.getBooleanExtra(EXTRA_COMPATIBILITY_MODE, false),
+                encoderPolicy = intent.encoderPolicy(),
+                h264ProfilePreference = intent.h264ProfilePreference(),
             ),
             audio = if (intent.getBooleanExtra(EXTRA_SYSTEM_AUDIO, false)) {
                 SystemAudioConfig.Enabled()
@@ -247,6 +250,8 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_VIDEO_HEIGHT = "video_height"
         private const val EXTRA_DENSITY_DPI = "density_dpi"
         private const val EXTRA_SYSTEM_AUDIO = "system_audio"
+        private const val EXTRA_ENCODER_POLICY = "encoder_policy"
+        private const val EXTRA_H264_PROFILE = "h264_profile"
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val NOTIFICATION_ID = 1002
 
@@ -271,7 +276,8 @@ class ScreenCaptureService : Service() {
                 .putExtra(EXTRA_VIDEO_HEIGHT, config.video.height)
                 .putExtra(EXTRA_DENSITY_DPI, config.video.densityDpi)
                 .putExtra(EXTRA_SYSTEM_AUDIO, config.audio is SystemAudioConfig.Enabled)
-                .putExtra(EXTRA_COMPATIBILITY_MODE, config.video.compatibilityMode)
+                .putExtra(EXTRA_ENCODER_POLICY, config.video.encoderPolicy.storageValue)
+                .putExtra(EXTRA_H264_PROFILE, config.video.h264ProfilePreference.storageValue)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -309,5 +315,16 @@ class ScreenCaptureService : Service() {
         } else {
             getParcelableExtra(EXTRA_RESULT_DATA)
         }
+    }
+
+    private fun Intent.encoderPolicy(): VideoEncoderPolicy {
+        val storageValue = getStringExtra(EXTRA_ENCODER_POLICY)
+        if (storageValue != null) return VideoEncoderPolicy.fromStorageValue(storageValue)
+
+        return VideoEncoderPolicy.fromCompatibilityMode(getBooleanExtra(EXTRA_COMPATIBILITY_MODE, false))
+    }
+
+    private fun Intent.h264ProfilePreference(): H264ProfilePreference {
+        return H264ProfilePreference.fromStorageValue(getStringExtra(EXTRA_H264_PROFILE))
     }
 }

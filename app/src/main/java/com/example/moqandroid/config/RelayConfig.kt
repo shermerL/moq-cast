@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.annotation.StringRes
 import com.example.moqandroid.R
+import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import java.util.Locale
 
 enum class AppLanguage(
@@ -46,6 +47,7 @@ data class SettingsState(
     val statusMessage: String,
     val language: AppLanguage = AppLanguage.English,
     val publishCompatibilityMode: Boolean = false,
+    val h264ProfilePreference: H264ProfilePreference = H264ProfilePreference.High,
 ) {
     fun withRelayUrl(value: String): SettingsState = copy(relayUrl = value)
 
@@ -54,4 +56,6 @@ data class SettingsState(
     fun withLanguage(value: AppLanguage): SettingsState = copy(language = value)
 
     fun withPublishCompatibilityMode(value: Boolean): SettingsState = copy(publishCompatibilityMode = value)
+
+    fun withH264ProfilePreference(value: H264ProfilePreference): SettingsState = copy(h264ProfilePreference = value)
 }

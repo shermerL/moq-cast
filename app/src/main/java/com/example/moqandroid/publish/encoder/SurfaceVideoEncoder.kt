@@ -24,6 +24,8 @@ class SurfaceVideoEncoder(
     private val relayUrl: String,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
+    private val attemptPlanner = H264EncoderAttemptPlanner()
+
     suspend fun run(
         config: VideoPublishConfig,
         broadcastName: String,
@@ -46,7 +48,7 @@ class SurfaceVideoEncoder(
         stats: PublishStatsTracker,
     ) {
         var lastError: Throwable? = null
-        val attempts = config.encoderAttempts()
+        val attempts = attemptPlanner.attempts(config)
         attempts.forEachIndexed { index, attempt ->
             val isFallbackAvailable = index < attempts.lastIndex
             var codec: MediaCodec? = null
@@ -56,6 +58,17 @@ class SurfaceVideoEncoder(
             var trackStarted = false
 
             try {
+                Log.i(
+                    LOG_TAG,
+                    "Starting H.264 encoder attempt ${index + 1}/${attempts.size} " +
+                        "encoder=${attempt.encoderName} profile=${attempt.profileName} " +
+                        "width=${attempt.config.width} height=${attempt.config.height} " +
+                        "fps=${attempt.config.frameRate} bitrate=${attempt.config.bitrate} " +
+                        "policy=${attempt.config.encoderPolicy.storageValue} " +
+                        "supportsHigh=${attempt.capability.supportsHigh} " +
+                        "supportsBaseline=${attempt.capability.supportsBaseline} " +
+                        "supportsFormat=${attempt.capability.supportsRequestedFormat}",
+                )
                 codec = MediaCodec.createEncoderByType(MIME_AVC)
                 codec.configure(attempt.mediaFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 val inputSurface = codec.createInputSurface()
@@ -94,10 +107,11 @@ class SurfaceVideoEncoder(
 
                 Log.w(
                     LOG_TAG,
-                    "H.264 encoder configure failed in compatibility mode, retrying with fallback " +
+                    "H.264 encoder configure failed, retrying with fallback " +
                         "width=${attempt.config.width} height=${attempt.config.height} " +
                         "fps=${attempt.config.frameRate} bitrate=${attempt.config.bitrate} " +
-                        "profile=${attempt.profileName}",
+                        "profile=${attempt.profileName} policy=${attempt.config.encoderPolicy.storageValue} " +
+                        "encoder=${attempt.encoderName}",
                     error,
                 )
             } finally {
@@ -109,22 +123,6 @@ class SurfaceVideoEncoder(
         }
 
         throw lastError ?: IllegalStateException("H.264 encoder did not start.")
-    }
-
-    private fun VideoPublishConfig.encoderAttempts(): List<EncoderAttempt> {
-        if (!compatibilityMode) return listOf(EncoderAttempt(this, profile = null, profileName = "default"))
-
-        return listOf(
-            EncoderAttempt(this, profile = MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline, profileName = "baseline"),
-            EncoderAttempt(alignForFallback(), profile = null, profileName = "default"),
-        )
-    }
-
-    private fun VideoPublishConfig.alignForFallback(): VideoPublishConfig {
-        return copy(
-            width = width.roundDownTo(FALLBACK_ALIGNMENT).coerceAtLeast(FALLBACK_ALIGNMENT),
-            height = height.roundDownTo(FALLBACK_ALIGNMENT).coerceAtLeast(FALLBACK_ALIGNMENT),
-        )
     }
 
     private fun EncoderAttempt.mediaFormat(): MediaFormat {
@@ -140,8 +138,6 @@ class SurfaceVideoEncoder(
             }
         }
     }
-
-    private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
 
     private suspend fun drain(
         codec: MediaCodec,
@@ -212,13 +208,6 @@ class SurfaceVideoEncoder(
     companion object {
         private const val LOG_TAG = "MoqAndroid"
         private const val MIME_AVC = "video/avc"
-        private const val FALLBACK_ALIGNMENT = 32
         private const val VIDEO_TRACK_NAME = "video"
     }
 }
-
-private data class EncoderAttempt(
-    val config: VideoPublishConfig,
-    val profile: Int?,
-    val profileName: String,
-)

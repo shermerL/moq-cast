@@ -32,6 +32,10 @@
     <string name="relay_updated">Relay updated.</string>
     <string name="language_set">Language set to %1$s.</string>
     <string name="publish_compatibility_mode">H.264 compatibility mode</string>
+    <string name="h264_profile_label">H.264 Profile</string>
+    <string name="h264_profile_options">H.264 profile options</string>
+    <string name="h264_profile_baseline">Baseline</string>
+    <string name="h264_profile_high">High</string>
     <string name="publish_status_starting">Starting screen publish ...</string>
     <string name="publish_status_preparing">Preparing screen publish ...</string>
     <string name="publish_status_connecting">Publishing to %1$s ...\nbroadcast=%2$s</string>

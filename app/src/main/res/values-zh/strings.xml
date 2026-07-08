@@ -32,6 +32,10 @@
     <string name="relay_updated">Relay 已更新。</string>
     <string name="language_set">语言已设置为 %1$s。</string>
     <string name="publish_compatibility_mode">H.264 兼容模式</string>
+    <string name="h264_profile_label">H.264 Profile</string>
+    <string name="h264_profile_options">H.264 Profile 选项</string>
+    <string name="h264_profile_baseline">Baseline</string>
+    <string name="h264_profile_high">High</string>
     <string name="publish_status_starting">正在启动屏幕发布 ...</string>
     <string name="publish_status_preparing">正在准备屏幕发布 ...</string>
     <string name="publish_status_connecting">正在发布到 %1$s ...\nbroadcast=%2$s</string>
