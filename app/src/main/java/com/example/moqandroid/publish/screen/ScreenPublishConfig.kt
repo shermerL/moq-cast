@@ -32,6 +32,19 @@ fun ScreenVideoConfig.encoderConfig(): VideoPublishConfig {
     )
 }
 
+fun VideoPublishConfig.withScreenSize(sourceWidth: Int, sourceHeight: Int): VideoPublishConfig {
+    val longestEdge = maxOf(sourceWidth, sourceHeight)
+    val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
+    val alignment = encoderPolicy.dimensionAlignment
+    val width = (sourceWidth * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
+    val height = (sourceHeight * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
+    return copy(width = width, height = height)
+}
+
+private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
+
+private const val MAX_PUBLISH_LONG_EDGE = 1080
+
 sealed class SystemAudioConfig {
     data object Disabled : SystemAudioConfig()
 

@@ -12,6 +12,7 @@ import com.example.moqandroid.publish.screen.ScreenCaptureService
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
 import com.example.moqandroid.publish.screen.SystemAudioConfig
+import com.example.moqandroid.publish.screen.withScreenSize
 import kotlinx.coroutines.flow.StateFlow
 
 class PublishController(private val context: Context) {
@@ -101,11 +102,16 @@ class PublishController(private val context: Context) {
         encoderPolicy: VideoEncoderPolicy,
         h264ProfilePreference: H264ProfilePreference,
     ): ScreenPublishConfig {
-        val (width, height) = scaledVideoSize(metrics.widthPixels, metrics.heightPixels, encoderPolicy)
+        val video = VideoPublishConfig(
+            width = metrics.widthPixels,
+            height = metrics.heightPixels,
+            encoderPolicy = encoderPolicy,
+            h264ProfilePreference = h264ProfilePreference,
+        ).withScreenSize(metrics.widthPixels, metrics.heightPixels)
         return ScreenPublishConfig(
             video = ScreenVideoConfig(
-                width = width,
-                height = height,
+                width = video.width,
+                height = video.height,
                 densityDpi = metrics.densityDpi,
                 encoderPolicy = encoderPolicy,
                 h264ProfilePreference = h264ProfilePreference,
@@ -114,20 +120,8 @@ class PublishController(private val context: Context) {
         )
     }
 
-    private fun scaledVideoSize(sourceWidth: Int, sourceHeight: Int, encoderPolicy: VideoEncoderPolicy): Pair<Int, Int> {
-        val longestEdge = maxOf(sourceWidth, sourceHeight)
-        val scale = minOf(MAX_PUBLISH_LONG_EDGE.toFloat() / longestEdge, 1f)
-        val alignment = encoderPolicy.dimensionAlignment
-        val width = (sourceWidth * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
-        val height = (sourceHeight * scale).toInt().roundDownTo(alignment).coerceAtLeast(alignment)
-        return width to height
-    }
-
-    private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
-
     private companion object {
         private const val MIME_AVC = "video/avc"
-        private const val MAX_PUBLISH_LONG_EDGE = 1080
     }
 }
 

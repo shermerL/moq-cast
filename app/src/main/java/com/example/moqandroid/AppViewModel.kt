@@ -37,6 +37,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
     private val initialShowPlaybackStats = configStore.loadShowPlaybackStats()
     private var appLanguage = initialLanguage
+    private var localizedResources = application.withAppLanguage(initialLanguage)
     private val publishController = PublishController(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
 
@@ -141,6 +142,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettingsLanguage(value: AppLanguage) {
         appLanguage = value
+        localizedResources = getApplication<Application>().withAppLanguage(value)
         configStore.saveLanguage(value)
         settingsState = settingsState
             .withLanguage(value)
@@ -342,7 +344,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updatePublishStatus(state: PublishState) {
-        val message = PublishStatusFormatter(localizedContext()).format(state)
+        val message = PublishStatusFormatter(localizedResources).format(state)
         Log.i(logTag, message)
         viewModelScope.launch(Dispatchers.Main.immediate) {
             publishPanelMode = state.toPublishPanelMode()
@@ -367,11 +369,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun text(@StringRes resId: Int, vararg args: Any): String {
-        return localizedContext().getString(resId, *args)
+        return localizedResources.getString(resId, *args)
     }
-
-    private fun localizedContext() = getApplication<Application>()
-        .withAppLanguage(appLanguage)
 }
 
 enum class AppScreen {

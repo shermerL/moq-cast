@@ -11,6 +11,8 @@ interface VideoPublishSource {
 
     fun detachEncoderSurface()
 
+    fun pollConfigChange(): VideoPublishConfig? = null
+
     fun close()
 }
 

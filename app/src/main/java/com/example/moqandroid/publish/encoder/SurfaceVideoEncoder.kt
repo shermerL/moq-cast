@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Bundle
 import android.util.Log
+import android.view.Surface
 import com.example.moqandroid.publish.PublisherEvent
 import com.example.moqandroid.publish.PublisherLifecycleEventSink
 import com.example.moqandroid.publish.PublisherState
@@ -32,11 +33,34 @@ class SurfaceVideoEncoder(
         audioConfig: SystemAudioConfig,
     ) = withContext(Dispatchers.Default) {
         val stats = PublishStatsTracker(relayUrl, broadcastName)
+        var activeConfig = config
+        var trackStarted = false
 
         try {
-            runAttempts(config, broadcastName, audioConfig, stats)
+            while (coroutineContext.isActive) {
+                val nextConfig = runAttempts(
+                    config = activeConfig,
+                    broadcastName = broadcastName,
+                    audioConfig = audioConfig,
+                    stats = stats,
+                    onEncodingStarted = {
+                        if (!trackStarted) {
+                            lifecycle.emit(PublisherEvent.TrackStarted(VIDEO_TRACK_NAME))
+                            trackStarted = true
+                        }
+                    },
+                ) ?: break
+                Log.i(
+                    LOG_TAG,
+                    "restarting H.264 encoder for screen resize " +
+                        "from=${activeConfig.width}x${activeConfig.height} " +
+                        "to=${nextConfig.width}x${nextConfig.height} track=reused",
+                )
+                activeConfig = nextConfig
+            }
         } finally {
             lifecycle.update(PublisherState.Stopping)
+            if (trackStarted) lifecycle.emit(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
             runCatching { media.finish() }
         }
     }
@@ -46,16 +70,17 @@ class SurfaceVideoEncoder(
         broadcastName: String,
         audioConfig: SystemAudioConfig,
         stats: PublishStatsTracker,
-    ) {
+        onEncodingStarted: () -> Unit,
+    ): VideoPublishConfig? {
         var lastError: Throwable? = null
         val attempts = attemptPlanner.attempts(config)
-        attempts.forEachIndexed { index, attempt ->
+        for ((index, attempt) in attempts.withIndex()) {
             val isFallbackAvailable = index < attempts.lastIndex
             var codec: MediaCodec? = null
+            var inputSurface: Surface? = null
             var codecStarted = false
             var sourceAttached = false
             var encodingStarted = false
-            var trackStarted = false
 
             try {
                 Log.i(
@@ -71,7 +96,7 @@ class SurfaceVideoEncoder(
                 )
                 codec = MediaCodec.createEncoderByType(MIME_AVC)
                 codec.configure(attempt.mediaFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                val inputSurface = codec.createInputSurface()
+                inputSurface = codec.createInputSurface()
                 codec.start()
                 codecStarted = true
 
@@ -81,8 +106,7 @@ class SurfaceVideoEncoder(
                     putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
                 })
 
-                lifecycle.emit(PublisherEvent.TrackStarted(VIDEO_TRACK_NAME))
-                trackStarted = true
+                onEncodingStarted()
                 lifecycle.update(
                     PublisherState.Publishing(
                         relayUrl = relayUrl,
@@ -95,8 +119,7 @@ class SurfaceVideoEncoder(
                     ),
                 )
                 encodingStarted = true
-                drain(codec, media, stats, lifecycle)
-                return
+                return drain(codec, media, stats, lifecycle, attempt.config)
             } catch (error: Throwable) {
                 if (encodingStarted && error !is CancellationException) {
                     lifecycle.emit(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
@@ -115,10 +138,10 @@ class SurfaceVideoEncoder(
                     error,
                 )
             } finally {
-                if (trackStarted) lifecycle.emit(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
                 if (sourceAttached) source.detachEncoderSurface()
                 if (codecStarted) runCatching { codec?.stop() }
                 codec?.release()
+                inputSurface?.release()
             }
         }
 
@@ -144,10 +167,18 @@ class SurfaceVideoEncoder(
         media: MoqMediaStreamProducer,
         stats: PublishStatsTracker,
         lifecycle: PublisherLifecycleEventSink,
-    ) {
+        activeConfig: VideoPublishConfig,
+    ): VideoPublishConfig? {
         val info = MediaCodec.BufferInfo()
         var codecConfig: ByteArray? = null
+        var awaitingKeyFrame = true
+        var loggedDiscardedDelta = false
         while (coroutineContext.isActive) {
+            source.pollConfigChange()?.let { nextConfig ->
+                if (nextConfig.width != activeConfig.width || nextConfig.height != activeConfig.height) {
+                    return nextConfig
+                }
+            }
             when (val outputIndex = codec.dequeueOutputBuffer(info, 10_000)) {
                 MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                 MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -177,13 +208,31 @@ class SurfaceVideoEncoder(
                             continue
                         }
 
-                        val frame = if (flags.hasKeyFrame()) annexB.withParameterSets(codecConfig) else annexB
+                        val keyFrame = flags.hasKeyFrame()
+                        if (awaitingKeyFrame && !keyFrame) {
+                            if (!loggedDiscardedDelta) {
+                                Log.w(LOG_TAG, "discarding H.264 delta frames until the restarted encoder emits an IDR")
+                                loggedDiscardedDelta = true
+                            }
+                            continue
+                        }
+
+                        val frame = if (keyFrame) annexB.withParameterSets(codecConfig) else annexB
+                        if (awaitingKeyFrame) {
+                            awaitingKeyFrame = false
+                            Log.i(
+                                LOG_TAG,
+                                "H.264 encoder IDR ready size=${activeConfig.width}x${activeConfig.height} " +
+                                    "parameterSetsBytes=${codecConfig?.size ?: 0}",
+                            )
+                        }
                         media.write(frame)
                         stats.onFrame(frame.size, lifecycle::emit)
                     }
                 }
             }
         }
+        return null
     }
 
     private fun java.nio.ByteBuffer.readBytes(info: MediaCodec.BufferInfo): ByteArray {
