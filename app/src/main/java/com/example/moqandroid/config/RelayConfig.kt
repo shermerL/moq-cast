@@ -48,6 +48,7 @@ data class SettingsState(
     val language: AppLanguage = AppLanguage.English,
     val publishCompatibilityMode: Boolean = false,
     val h264ProfilePreference: H264ProfilePreference = H264ProfilePreference.High,
+    val showPlaybackStats: Boolean = true,
 ) {
     fun withRelayUrl(value: String): SettingsState = copy(relayUrl = value)
 
@@ -58,4 +59,6 @@ data class SettingsState(
     fun withPublishCompatibilityMode(value: Boolean): SettingsState = copy(publishCompatibilityMode = value)
 
     fun withH264ProfilePreference(value: H264ProfilePreference): SettingsState = copy(h264ProfilePreference = value)
+
+    fun withShowPlaybackStats(value: Boolean): SettingsState = copy(showPlaybackStats = value)
 }

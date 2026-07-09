@@ -28,8 +28,7 @@ import com.example.moqandroid.ui.app.PublishPanelActions
 import com.example.moqandroid.ui.app.PublishPanelState
 import com.example.moqandroid.ui.app.RelayConfigActions
 import com.example.moqandroid.ui.app.RelayConfigUiState
-import com.example.moqandroid.ui.app.RelaySettings
-import com.example.moqandroid.ui.app.RelaySettingsActions
+import com.example.moqandroid.ui.app.SettingsActions
 import com.example.moqandroid.ui.app.SettingsUiState
 import com.example.moqandroid.ui.app.SubscribePanelActions
 import com.example.moqandroid.ui.app.SubscribePanelState
@@ -68,55 +67,51 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
                     AppScreen.Home -> MainTabs(
                         state = MainTabsState(
                             publish = PublishPanelState(
+                                relayUrl = viewModel.homeRelayUrl,
                                 broadcast = viewModel.publishBroadcastName,
                                 includeSystemAudio = viewModel.includeSystemAudio,
                                 status = viewModel.publishStatusMessage,
+                                mode = viewModel.publishPanelMode,
                             ),
                             subscribe = SubscribePanelState(
+                                relayUrl = viewModel.homeRelayUrl,
                                 broadcast = viewModel.subscribeBroadcastName,
                                 status = viewModel.subscribeStatusMessage,
+                            ),
+                            settings = SettingsUiState(
+                                relayUrl = viewModel.settingsRelayUrl,
+                                status = viewModel.settingsStatusMessage,
+                                language = viewModel.settingsLanguage,
+                                languageOptions = viewModel.languageOptions,
+                                publishCompatibilityMode = viewModel.settingsPublishCompatibilityMode,
+                                h264ProfilePreference = viewModel.settingsH264ProfilePreference,
+                                h264ProfileOptions = viewModel.h264ProfileOptions,
+                                showPlaybackStats = viewModel.settingsShowPlaybackStats,
                             ),
                         ),
                         actions = MainTabsActions(
                             publish = PublishPanelActions(
+                                onRelayUrlChange = viewModel::updateHomeRelayUrl,
                                 onBroadcastChange = viewModel::updatePublishBroadcast,
                                 onIncludeSystemAudioChange = viewModel::updateIncludeSystemAudio,
                                 onPublish = ::requestScreenPublish,
                                 onStopPublish = { viewModel.stopPublish(localizedText(R.string.screen_publish_stopped)) },
                             ),
                             subscribe = SubscribePanelActions(
+                                onRelayUrlChange = viewModel::updateHomeRelayUrl,
                                 onBroadcastChange = viewModel::updateSubscribeBroadcast,
                                 onSubscribe = ::showPlayerUi,
                             ),
-                            onSettings = {
-                                exitFullscreen()
-                                viewModel.showSettingsUi()
-                            },
-                        ),
-                    )
-
-                    AppScreen.Settings -> RelaySettings(
-                        state = SettingsUiState(
-                            relayUrl = viewModel.settingsRelayUrl,
-                            status = viewModel.settingsStatusMessage,
-                            language = viewModel.settingsLanguage,
-                            languageOptions = viewModel.languageOptions,
-                            publishCompatibilityMode = viewModel.settingsPublishCompatibilityMode,
-                            h264ProfilePreference = viewModel.settingsH264ProfilePreference,
-                            h264ProfileOptions = viewModel.h264ProfileOptions,
-                        ),
-                        actions = RelaySettingsActions(
-                            onRelayUrlChange = viewModel::updateSettingsRelayUrl,
-                            onLanguageChange = viewModel::updateSettingsLanguage,
-                            onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
-                            onH264ProfilePreferenceChange = viewModel::updateSettingsH264ProfilePreference,
-                            onSave = {
-                                if (viewModel.saveSettingsFromInput()) exitFullscreen()
-                            },
-                            onBack = {
-                                exitFullscreen()
-                                viewModel.showMainUi()
-                            },
+                            settings = SettingsActions(
+                                onRelayUrlChange = viewModel::updateSettingsRelayUrl,
+                                onLanguageChange = viewModel::updateSettingsLanguage,
+                                onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
+                                onH264ProfilePreferenceChange = viewModel::updateSettingsH264ProfilePreference,
+                                onShowPlaybackStatsChange = viewModel::updateSettingsShowPlaybackStats,
+                                onSave = {
+                                    if (viewModel.saveSettingsFromInput()) exitFullscreen()
+                                },
+                            ),
                         ),
                     )
                 }
@@ -217,12 +212,6 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
             return true
         }
 
-        if (keyCode == KeyEvent.KEYCODE_BACK && viewModel.currentScreen == AppScreen.Settings) {
-            viewModel.showMainUi()
-            exitFullscreen()
-            return true
-        }
-
         return super.onKeyUp(keyCode, event)
     }
 
@@ -235,7 +224,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback {
         if (state is PlayerState.Playing) {
             playerScreen?.setVideoSize(state.videoInfo.displayWidth, state.videoInfo.displayHeight)
         }
-        playerScreen?.setStatus(message)
+        playerScreen?.setStatus(
+            message = message,
+            visible = state !is PlayerState.Stats || viewModel.settingsShowPlaybackStats,
+        )
     }
 
     private fun hasRecordAudioPermission(): Boolean {

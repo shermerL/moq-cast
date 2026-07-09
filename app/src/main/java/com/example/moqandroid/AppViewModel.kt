@@ -24,6 +24,7 @@ import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFormatter
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
+import com.example.moqandroid.ui.app.PublishPanelMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -34,6 +35,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialLanguage = configStore.loadLanguage()
     private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
     private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
+    private val initialShowPlaybackStats = configStore.loadShowPlaybackStats()
     private var appLanguage = initialLanguage
     private val publishController = PublishController(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
@@ -47,6 +49,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            showPlaybackStats = initialShowPlaybackStats,
         ),
     )
         private set
@@ -57,8 +60,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            showPlaybackStats = initialShowPlaybackStats,
         ),
     )
+        private set
+    var homeRelayUrl by mutableStateOf(initialRelayUrl)
         private set
     var publishBroadcastName by mutableStateOf("bbb.hang")
         private set
@@ -67,6 +73,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var currentScreen by mutableStateOf(AppScreen.Config)
         private set
     var publishStatusMessage by mutableStateOf(text(R.string.ready_publish_screen))
+        private set
+    var publishPanelMode by mutableStateOf(PublishPanelMode.Ready)
         private set
     var subscribeStatusMessage by mutableStateOf(text(R.string.ready_subscribe))
         private set
@@ -101,6 +109,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsH264ProfilePreference: H264ProfilePreference
         get() = settingsState.h264ProfilePreference
 
+    val settingsShowPlaybackStats: Boolean
+        get() = settingsState.showPlaybackStats
+
     val languageOptions: List<AppLanguage>
         get() = AppLanguage.entries
 
@@ -124,6 +135,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         settingsState = settingsState.withRelayUrl(value)
     }
 
+    fun updateHomeRelayUrl(value: String) {
+        homeRelayUrl = value
+    }
+
     fun updateSettingsLanguage(value: AppLanguage) {
         appLanguage = value
         configStore.saveLanguage(value)
@@ -138,6 +153,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettingsH264ProfilePreference(value: H264ProfilePreference) {
         settingsState = settingsState.withH264ProfilePreference(value)
+    }
+
+    fun updateSettingsShowPlaybackStats(value: Boolean) {
+        settingsState = settingsState.withShowPlaybackStats(value)
     }
 
     fun updatePublishBroadcast(value: String) {
@@ -161,23 +180,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun showSettingsUi() {
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         playerBroadcast = null
-        settingsState = SettingsState(
-            relayUrl = relayConfig.relayUrl,
-            statusMessage = text(R.string.update_relay_url),
-            language = settingsState.language,
-            publishCompatibilityMode = settingsState.publishCompatibilityMode,
-            h264ProfilePreference = settingsState.h264ProfilePreference,
-        )
-        currentScreen = AppScreen.Settings
+        currentScreen = AppScreen.Home
     }
 
     fun saveConfigFromInput(): Boolean {
         val nextRelayConfig = relayConfigFromInput(configState.relayUrl, ::updateConfigStatus) ?: return false
 
-        relayConfig = nextRelayConfig
-        settingsState = settingsState.withRelayUrl(nextRelayConfig.relayUrl)
+        applyRelayConfig(nextRelayConfig)
         configStore.saveLanguage(configState.language)
-        configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         publishStatusMessage = text(R.string.relay_saved)
         subscribeStatusMessage = text(R.string.relay_saved)
         showMainUi()
@@ -187,17 +197,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun saveSettingsFromInput(): Boolean {
         val nextRelayConfig = relayConfigFromInput(settingsState.relayUrl, ::updateSettingsStatus) ?: return false
 
-        relayConfig = nextRelayConfig
+        applyRelayConfig(nextRelayConfig)
         configState = configState
             .withRelayUrl(nextRelayConfig.relayUrl)
             .withLanguage(settingsState.language)
             .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
             .withH264ProfilePreference(settingsState.h264ProfilePreference)
+            .withShowPlaybackStats(settingsState.showPlaybackStats)
             .withStatus(text(R.string.relay_required))
-        configStore.saveRelayUrl(nextRelayConfig.relayUrl)
         configStore.saveLanguage(settingsState.language)
         configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
         configStore.saveH264ProfilePreference(settingsState.h264ProfilePreference)
+        configStore.saveShowPlaybackStats(settingsState.showPlaybackStats)
         publishStatusMessage = text(R.string.relay_updated)
         subscribeStatusMessage = text(R.string.relay_updated)
         showMainUi()
@@ -205,6 +216,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun prepareSubscribe(): String? {
+        val nextRelayConfig = relayConfigFromInput(homeRelayUrl, ::updateSubscribeStatus) ?: return null
+        applyRelayConfig(nextRelayConfig)
+
         val nextBroadcast = subscribeBroadcastName.trim().trim('/')
         if (nextBroadcast.isEmpty()) {
             updateSubscribeStatus(text(R.string.broadcast_empty))
@@ -221,6 +235,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hasRecordAudioPermission: Boolean,
         hasNotificationPermission: Boolean,
     ): PublishRequest {
+        val nextRelayConfig = relayConfigFromInput(homeRelayUrl, ::updatePublishHomeStatus) ?: return PublishRequest.None
+        applyRelayConfig(nextRelayConfig)
+
         val preparation = publishController.prepare(
             broadcastInput = publishBroadcastName,
             includeSystemAudio = includeSystemAudio,
@@ -271,6 +288,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopPublish(message: String) {
         publishController.stop()
+        publishPanelMode = PublishPanelMode.Ready
         publishStatusMessage = message
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
@@ -315,12 +333,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         Log.i(logTag, message)
     }
 
+    private fun applyRelayConfig(nextRelayConfig: RelayConfig) {
+        relayConfig = nextRelayConfig
+        homeRelayUrl = nextRelayConfig.relayUrl
+        configState = configState.withRelayUrl(nextRelayConfig.relayUrl)
+        settingsState = settingsState.withRelayUrl(nextRelayConfig.relayUrl)
+        configStore.saveRelayUrl(nextRelayConfig.relayUrl)
+    }
+
     private fun updatePublishStatus(state: PublishState) {
         val message = PublishStatusFormatter(localizedContext()).format(state)
         Log.i(logTag, message)
         viewModelScope.launch(Dispatchers.Main.immediate) {
+            publishPanelMode = state.toPublishPanelMode()
             publishStatusMessage = message
         }
+    }
+
+    private fun PublishState.toPublishPanelMode(): PublishPanelMode = when (this) {
+        PublishState.Preparing,
+        is PublishState.Connecting,
+        -> PublishPanelMode.Preparing
+        is PublishState.Publishing,
+        is PublishState.Stats,
+        is PublishState.AudioFailed,
+        -> PublishPanelMode.Publishing
+        PublishState.Stopping,
+        -> PublishPanelMode.Stopping
+        is PublishState.Failed,
+        -> PublishPanelMode.Error
+        PublishState.Stopped,
+        -> PublishPanelMode.Ready
     }
 
     private fun text(@StringRes resId: Int, vararg args: Any): String {
@@ -334,5 +377,4 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 enum class AppScreen {
     Config,
     Home,
-    Settings,
 }

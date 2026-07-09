@@ -47,8 +47,9 @@ class PlayerScreen(
 
     val root: View = rootFrame
 
-    fun setStatus(message: String) {
+    fun setStatus(message: String, visible: Boolean = true) {
         status.text = message
+        status.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
     fun setVideoSize(width: Int?, height: Int?) {

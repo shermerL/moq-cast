@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -15,6 +16,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.util.DisplayMetrics
+import android.view.Display
+import android.view.Surface
 import com.example.moqandroid.R
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
@@ -115,6 +119,7 @@ class ScreenCaptureService : Service() {
                 val projection = manager.getMediaProjection(resultCode, resultData)
                     ?: error("Android did not return a MediaProjection.")
                 val projectionCallback = projection.registerStopCallback(currentCoroutineContext()[Job])
+                val displayListener = registerDisplayDiagnostics(config.video)
                 try {
                     MoqPublishSession(
                         relayUrl = relayUrl,
@@ -130,6 +135,7 @@ class ScreenCaptureService : Service() {
                         SystemAudioCapture(projection, producer, audioConfig, LOG_TAG).run()
                     }
                 } finally {
+                    getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
                     projection.unregisterCallbackSafe(projectionCallback)
                     projection.stopSafe()
                 }
@@ -158,6 +164,47 @@ class ScreenCaptureService : Service() {
         }
         registerCallback(callback, Handler(Looper.getMainLooper()))
         return callback
+    }
+
+    private fun registerDisplayDiagnostics(config: ScreenVideoConfig): DisplayManager.DisplayListener {
+        val displayManager = getSystemService(DisplayManager::class.java)
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+
+            override fun onDisplayRemoved(displayId: Int) = Unit
+
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId == Display.DEFAULT_DISPLAY) {
+                    logDisplayDiagnostics("changed", config)
+                }
+            }
+        }
+        displayManager.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        logDisplayDiagnostics("initial", config)
+        return listener
+    }
+
+    @Suppress("DEPRECATION")
+    private fun logDisplayDiagnostics(event: String, config: ScreenVideoConfig) {
+        val display = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+        val metrics = DisplayMetrics()
+        display?.getRealMetrics(metrics)
+        Log.i(
+            LOG_TAG,
+            "screen capture geometry event=$event " +
+                "displayRotation=${display?.rotation.rotationName()} " +
+                "screen=${metrics.widthPixels}x${metrics.heightPixels} densityDpi=${metrics.densityDpi} " +
+                "virtualDisplay=${config.width}x${config.height} " +
+                "encoderInput=${config.width}x${config.height}",
+        )
+    }
+
+    private fun Int?.rotationName(): String = when (this) {
+        Surface.ROTATION_0 -> "0"
+        Surface.ROTATION_90 -> "90"
+        Surface.ROTATION_180 -> "180"
+        Surface.ROTATION_270 -> "270"
+        else -> "unknown"
     }
 
     private fun MediaProjection.unregisterCallbackSafe(callback: MediaProjection.Callback) {

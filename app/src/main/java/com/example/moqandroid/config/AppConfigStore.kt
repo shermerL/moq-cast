@@ -28,6 +28,10 @@ class AppConfigStore(context: Context) {
         return H264ProfilePreference.fromStorageValue(prefs.getString(KEY_H264_PROFILE, null))
     }
 
+    fun loadShowPlaybackStats(): Boolean {
+        return prefs.getBoolean(KEY_SHOW_PLAYBACK_STATS, true)
+    }
+
     fun saveRelayUrl(relayUrl: String) {
         prefs.edit()
             .putString(KEY_RELAY_URL, relayUrl.trim())
@@ -52,11 +56,18 @@ class AppConfigStore(context: Context) {
             .apply()
     }
 
+    fun saveShowPlaybackStats(show: Boolean) {
+        prefs.edit()
+            .putBoolean(KEY_SHOW_PLAYBACK_STATS, show)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "moq_android_config"
         private const val KEY_RELAY_URL = "relay_url"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_PUBLISH_COMPATIBILITY_MODE = "publish_compatibility_mode"
         private const val KEY_H264_PROFILE = "h264_profile"
+        private const val KEY_SHOW_PLAYBACK_STATS = "show_playback_stats"
     }
 }

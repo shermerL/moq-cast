@@ -151,7 +151,18 @@ class SurfaceVideoEncoder(
             when (val outputIndex = codec.dequeueOutputBuffer(info, 10_000)) {
                 MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                 MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    codecConfig = codec.outputFormat.h264CodecConfig()
+                    val outputFormat = codec.outputFormat
+                    val spsBytes = outputFormat.getByteBuffer("csd-0")?.remaining() ?: 0
+                    val ppsBytes = outputFormat.getByteBuffer("csd-1")?.remaining() ?: 0
+                    codecConfig = outputFormat.h264CodecConfig()
+                    Log.i(
+                        LOG_TAG,
+                        "H.264 encoder output format " +
+                            "size=${outputFormat.integerOrUnknown(MediaFormat.KEY_WIDTH)}x" +
+                            "${outputFormat.integerOrUnknown(MediaFormat.KEY_HEIGHT)} " +
+                            "spsBytes=$spsBytes ppsBytes=$ppsBytes " +
+                            "catalogFormat=avc3 catalogRotation=unset",
+                    )
                 }
                 MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
                 else -> if (outputIndex >= 0) {
@@ -190,6 +201,10 @@ class SurfaceVideoEncoder(
             pps != null -> pps
             else -> null
         }
+    }
+
+    private fun MediaFormat.integerOrUnknown(key: String): String {
+        return if (containsKey(key)) getInteger(key).toString() else "unknown"
     }
 
     private fun java.nio.ByteBuffer.readRemainingBytes(): ByteArray {

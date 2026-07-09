@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -26,7 +24,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -45,10 +42,14 @@ import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.ui.components.ClearFocusOnEntry
 import com.example.moqandroid.ui.components.LabeledField
+import com.example.moqandroid.ui.components.MoqBrandHeader
+import com.example.moqandroid.ui.components.MoqInfoRow
+import com.example.moqandroid.ui.components.MoqPill
+import com.example.moqandroid.ui.components.MoqSettingSection
 import com.example.moqandroid.ui.components.Page
 import com.example.moqandroid.ui.components.PrimaryAction
+import com.example.moqandroid.ui.components.SecondaryAction
 import com.example.moqandroid.ui.components.StatusPanel
-import com.example.moqandroid.ui.components.TopBar
 import com.example.moqandroid.ui.components.bottomSystemInset
 import com.example.moqandroid.ui.components.navColors
 import com.example.moqandroid.ui.components.topSystemInset
@@ -66,6 +67,7 @@ import com.example.moqandroid.ui.theme.WorkspaceBackground
 private enum class HomeTab {
     Publish,
     Subscribe,
+    Settings,
 }
 
 @Composable
@@ -107,12 +109,6 @@ fun MainTabs(
                 .fillMaxSize()
                 .background(WorkspaceBackground),
         ) {
-            TopBar(
-                title = stringResource(R.string.app_name),
-                actionIcon = Icons.Default.Settings,
-                actionDescription = stringResource(R.string.settings),
-                onAction = actions.onSettings,
-            )
             Box(Modifier.weight(1f)) {
                 when (selectedTab) {
                     HomeTab.Publish -> PublishPanel(
@@ -123,6 +119,11 @@ fun MainTabs(
                     HomeTab.Subscribe -> SubscribePanel(
                         state = state.subscribe,
                         actions = actions.subscribe,
+                    )
+
+                    HomeTab.Settings -> SettingsPanel(
+                        state = state.settings,
+                        actions = actions.settings,
                     )
                 }
             }
@@ -135,14 +136,21 @@ fun MainTabs(
                     selected = selectedTab == HomeTab.Publish,
                     onClick = { selectedTab = HomeTab.Publish },
                     label = { Text(stringResource(R.string.publish_tab)) },
-                    icon = { Text("↑") },
+                    icon = { Text("UP") },
                     colors = navColors(),
                 )
                 NavigationBarItem(
                     selected = selectedTab == HomeTab.Subscribe,
                     onClick = { selectedTab = HomeTab.Subscribe },
                     label = { Text(stringResource(R.string.subscribe_tab)) },
-                    icon = { Text("↓") },
+                    icon = { Text("DOWN") },
+                    colors = navColors(),
+                )
+                NavigationBarItem(
+                    selected = selectedTab == HomeTab.Settings,
+                    onClick = { selectedTab = HomeTab.Settings },
+                    label = { Text(stringResource(R.string.settings)) },
+                    icon = { Text("SET") },
                     colors = navColors(),
                 )
             }
@@ -151,117 +159,152 @@ fun MainTabs(
 }
 
 @Composable
-fun RelaySettings(
+private fun SettingsPanel(
     state: SettingsUiState,
-    actions: RelaySettingsActions,
+    actions: SettingsActions,
 ) {
-    MoqAppTheme {
-        ClearFocusOnEntry("relay-settings")
+    ClearFocusOnEntry("relay-settings")
+    Page {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .background(WorkspaceBackground),
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            TopBar(
-                title = stringResource(R.string.settings),
-                actionIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                actionDescription = stringResource(R.string.back),
-                onAction = actions.onBack,
+            MoqBrandHeader(
+                appName = stringResource(R.string.app_name),
+                relayLabel = stringResource(R.string.local_relay_chip),
             )
-            Page {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    SettingsSection(title = stringResource(R.string.general_section)) {
-                        LanguageSettingRow(
-                            selected = state.language,
-                            options = state.languageOptions,
-                            onSelected = actions.onLanguageChange,
-                        )
-                    }
 
-                    SettingsSection(title = stringResource(R.string.publish_section)) {
-                        ToggleSettingRow(
-                            label = stringResource(R.string.publish_compatibility_mode),
-                            checked = state.publishCompatibilityMode,
-                            onCheckedChange = actions.onPublishCompatibilityModeChange,
-                        )
-                        H264ProfileSettingRow(
-                            selected = state.h264ProfilePreference,
-                            options = state.h264ProfileOptions,
-                            onSelected = actions.onH264ProfilePreferenceChange,
-                        )
-                    }
-
-                    SettingsSection(title = stringResource(R.string.connection_section)) {
-                        RelayUrlSettingRow(
-                            value = state.relayUrl,
-                            onValueChange = actions.onRelayUrlChange,
-                        )
-                    }
-
-                    StatusPanel(state.status)
-                }
-                Spacer(Modifier.height(12.dp))
-                PrimaryAction(stringResource(R.string.save), actions.onSave)
+            MoqSettingSection(title = stringResource(R.string.general_section)) {
+                LanguageSettingRow(
+                    selected = state.language,
+                    options = state.languageOptions,
+                    onSelected = actions.onLanguageChange,
+                )
+                Spacer(Modifier.height(18.dp))
+                StaticSettingRow(
+                    label = stringResource(R.string.theme_label),
+                    note = stringResource(R.string.theme_note),
+                    pill = stringResource(R.string.theme_system),
+                )
             }
-        }
-    }
-}
 
-@Composable
-private fun SettingsSection(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    Surface(
-        color = SurfaceColor,
-        shape = RoundedCornerShape(8.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(vertical = 16.dp)) {
-            Text(
-                title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary,
-                modifier = Modifier.padding(horizontal = 18.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            content()
+            MoqSettingSection(title = stringResource(R.string.publish_section)) {
+                ToggleSettingRow(
+                    label = stringResource(R.string.publish_compatibility_mode),
+                    note = stringResource(R.string.publish_compatibility_note),
+                    checked = state.publishCompatibilityMode,
+                    onCheckedChange = actions.onPublishCompatibilityModeChange,
+                )
+                Spacer(Modifier.height(18.dp))
+                H264ProfileSettingRow(
+                    selected = state.h264ProfilePreference,
+                    options = state.h264ProfileOptions,
+                    onSelected = actions.onH264ProfilePreferenceChange,
+                )
+            }
+
+            MoqSettingSection(title = stringResource(R.string.playback_section)) {
+                ToggleSettingRow(
+                    label = stringResource(R.string.show_playback_stats),
+                    note = stringResource(R.string.show_playback_stats_note),
+                    checked = state.showPlaybackStats,
+                    onCheckedChange = actions.onShowPlaybackStatsChange,
+                )
+            }
+
+            MoqSettingSection(title = stringResource(R.string.connection_section)) {
+                RelayUrlSettingRow(
+                    value = state.relayUrl,
+                    onValueChange = actions.onRelayUrlChange,
+                )
+            }
+
+            MoqSettingSection(title = stringResource(R.string.about_section)) {
+                StaticSettingRow(
+                    label = stringResource(R.string.about_app_label),
+                    note = stringResource(R.string.about_app_note),
+                    pill = stringResource(R.string.about_version),
+                )
+            }
+
+            StatusPanel(state.status)
         }
+        Spacer(Modifier.height(12.dp))
+        PrimaryAction(stringResource(R.string.save), actions.onSave)
     }
 }
 
 @Composable
 private fun SettingRow(
     label: String,
+    note: String? = null,
     control: @Composable () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 8.dp)
-            .sizeIn(minHeight = 56.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    MoqInfoRow(
+        label = label,
+        note = note,
     ) {
-        Text(
-            label,
-            fontSize = 16.sp,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            modifier = Modifier.weight(1.35f),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
+        Box(contentAlignment = Alignment.CenterEnd) {
             control()
+        }
+    }
+}
+
+@Composable
+private fun StaticSettingRow(
+    label: String,
+    note: String,
+    pill: String,
+) {
+    SettingRow(label = label, note = note) {
+        MoqPill(text = pill, selected = false)
+    }
+}
+
+@Composable
+private fun PillDropdown(
+    text: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    contentDescription: String,
+    menu: @Composable () -> Unit,
+) {
+    Box {
+        Surface(
+            color = SurfaceMuted,
+            shape = RoundedCornerShape(999.dp),
+            tonalElevation = 0.dp,
+            modifier = Modifier
+                .widthIn(min = 96.dp, max = 132.dp)
+                .height(30.dp)
+                .clickable { onExpandedChange(true) },
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text,
+                    color = TextPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = contentDescription,
+                    tint = TextSecondary,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+        ) {
+            menu()
         }
     }
 }
@@ -269,13 +312,15 @@ private fun SettingRow(
 @Composable
 private fun ToggleSettingRow(
     label: String,
+    note: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    SettingRow(label = label) {
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
+    SettingRow(label = label, note = note) {
+        MoqPill(
+            text = if (checked) stringResource(R.string.system_audio_on) else stringResource(R.string.system_audio_off),
+            selected = checked,
+            onClick = { onCheckedChange(!checked) },
         )
     }
 }
@@ -288,47 +333,24 @@ private fun H264ProfileSettingRow(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    SettingRow(label = stringResource(R.string.h264_profile_label)) {
-        Box {
-            Surface(
-                color = SurfaceMuted,
-                shape = RoundedCornerShape(8.dp),
-                tonalElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .clickable { expanded = true },
-            ) {
-                Row(
-                    modifier = Modifier.padding(start = 14.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(selected.labelRes),
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = stringResource(R.string.h264_profile_options),
-                        tint = TextSecondary,
-                    )
-                }
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                options.forEach { profile ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(profile.labelRes)) },
-                        onClick = {
-                            expanded = false
-                            onSelected(profile)
-                        },
-                    )
-                }
+    SettingRow(
+        label = stringResource(R.string.h264_profile_label),
+        note = stringResource(R.string.h264_profile_note),
+    ) {
+        PillDropdown(
+            text = stringResource(selected.labelRes),
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            contentDescription = stringResource(R.string.h264_profile_options),
+        ) {
+            options.forEach { profile ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(profile.labelRes)) },
+                    onClick = {
+                        expanded = false
+                        onSelected(profile)
+                    },
+                )
             }
         }
     }
@@ -342,47 +364,24 @@ private fun LanguageSettingRow(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    SettingRow(label = stringResource(R.string.language_label)) {
-        Box {
-            Surface(
-                color = SurfaceMuted,
-                shape = RoundedCornerShape(8.dp),
-                tonalElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .clickable { expanded = true },
-            ) {
-                Row(
-                    modifier = Modifier.padding(start = 14.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(selected.labelRes),
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = stringResource(R.string.language_options),
-                        tint = TextSecondary,
-                    )
-                }
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                options.forEach { language ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(language.labelRes)) },
-                        onClick = {
-                            expanded = false
-                            onSelected(language)
-                        },
-                    )
-                }
+    SettingRow(
+        label = stringResource(R.string.language_label),
+        note = stringResource(R.string.language_note),
+    ) {
+        PillDropdown(
+            text = stringResource(selected.labelRes),
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            contentDescription = stringResource(R.string.language_options),
+        ) {
+            options.forEach { language ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(language.labelRes)) },
+                    onClick = {
+                        expanded = false
+                        onSelected(language)
+                    },
+                )
             }
         }
     }
@@ -393,13 +392,13 @@ private fun RelayUrlSettingRow(
     value: String,
     onValueChange: (String) -> Unit,
 ) {
-    SettingRow(label = stringResource(R.string.relay_url_label)) {
+    SettingRow(label = stringResource(R.string.relay_url_label), note = stringResource(R.string.relay_url_note)) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
             placeholder = { Text("http://host:4443/anon") },
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = SurfaceMuted,
                 unfocusedContainerColor = SurfaceMuted,
@@ -408,7 +407,7 @@ private fun RelayUrlSettingRow(
                 cursorColor = PrimaryColor,
             ),
             modifier = Modifier
-                .fillMaxWidth()
+                .widthIn(min = 150.dp, max = 220.dp)
                 .height(56.dp),
         )
     }

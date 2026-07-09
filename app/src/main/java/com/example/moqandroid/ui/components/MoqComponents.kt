@@ -130,7 +130,7 @@ fun LabeledField(
         placeholder = { Text(placeholder) },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
         keyboardActions = KeyboardActions(onGo = { onSubmit() }, onDone = { onSubmit() }),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = SurfaceColor,
             unfocusedContainerColor = SurfaceColor,
@@ -151,7 +151,7 @@ fun PrimaryAction(text: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor, contentColor = Color.White),
     ) {
         Text(text, fontSize = 15.sp)
@@ -165,7 +165,7 @@ fun SecondaryAction(text: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
     ) {
         Text(text, fontSize = 15.sp)

@@ -5,13 +5,14 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val WorkspaceBackground = Color(0xFFF7F6F3)
+val WorkspaceBackground = Color(0xFFF6F8F6)
 val SurfaceColor = Color.White
-val SurfaceMuted = Color(0xFFF1F1EF)
-val BorderColor = Color(0xFFE3E2DF)
-val PrimaryColor = Color(0xFF2F3437)
-val TextPrimary = Color(0xFF37352F)
-val TextSecondary = Color(0xFF787774)
+val SurfaceMuted = Color(0xFFEEF4F1)
+val BorderColor = Color(0xFFD7E1DD)
+val PrimaryColor = Color(0xFF0C7C68)
+val TextPrimary = Color(0xFF16201D)
+val TextSecondary = Color(0xFF65736E)
+val PlayerColor = Color(0xFF101614)
 
 @Composable
 fun MoqAppTheme(content: @Composable () -> Unit) {

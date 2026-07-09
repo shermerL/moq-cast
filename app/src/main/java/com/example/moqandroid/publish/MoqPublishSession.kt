@@ -28,6 +28,7 @@ class MoqPublishSession(
 
         try {
             MoqBroadcastProducer().use { broadcast ->
+                Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
                 val media = broadcast.publishMediaStream("avc3")
                 val audio = (config.audio as? SystemAudioConfig.Enabled)?.let { audioConfig ->
                     Log.i(

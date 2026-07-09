@@ -16,6 +16,7 @@ data class SettingsUiState(
     val publishCompatibilityMode: Boolean,
     val h264ProfilePreference: H264ProfilePreference,
     val h264ProfileOptions: List<H264ProfilePreference>,
+    val showPlaybackStats: Boolean,
 )
 
 data class RelayConfigActions(
@@ -23,13 +24,24 @@ data class RelayConfigActions(
     val onContinue: () -> Unit,
 )
 
+enum class PublishPanelMode {
+    Ready,
+    Preparing,
+    Publishing,
+    Stopping,
+    Error,
+}
+
 data class PublishPanelState(
+    val relayUrl: String,
     val broadcast: String,
     val includeSystemAudio: Boolean,
     val status: String,
+    val mode: PublishPanelMode,
 )
 
 data class PublishPanelActions(
+    val onRelayUrlChange: (String) -> Unit,
     val onBroadcastChange: (String) -> Unit,
     val onIncludeSystemAudioChange: (Boolean) -> Unit,
     val onPublish: () -> Unit,
@@ -37,11 +49,13 @@ data class PublishPanelActions(
 )
 
 data class SubscribePanelState(
+    val relayUrl: String,
     val broadcast: String,
     val status: String,
 )
 
 data class SubscribePanelActions(
+    val onRelayUrlChange: (String) -> Unit,
     val onBroadcastChange: (String) -> Unit,
     val onSubscribe: () -> Unit,
 )
@@ -49,19 +63,20 @@ data class SubscribePanelActions(
 data class MainTabsState(
     val publish: PublishPanelState,
     val subscribe: SubscribePanelState,
+    val settings: SettingsUiState,
 )
 
 data class MainTabsActions(
     val publish: PublishPanelActions,
     val subscribe: SubscribePanelActions,
-    val onSettings: () -> Unit,
+    val settings: SettingsActions,
 )
 
-data class RelaySettingsActions(
+data class SettingsActions(
     val onRelayUrlChange: (String) -> Unit,
     val onLanguageChange: (AppLanguage) -> Unit,
     val onPublishCompatibilityModeChange: (Boolean) -> Unit,
     val onH264ProfilePreferenceChange: (H264ProfilePreference) -> Unit,
+    val onShowPlaybackStatsChange: (Boolean) -> Unit,
     val onSave: () -> Unit,
-    val onBack: () -> Unit,
 )
