@@ -9,19 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.moqandroid.R
+import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.MoqBrandHeader
 import com.example.moqandroid.ui.components.MoqInfoRow
@@ -34,27 +27,12 @@ import com.example.moqandroid.ui.components.SecondaryAction
 import com.example.moqandroid.ui.app.PublishPanelActions
 import com.example.moqandroid.ui.app.PublishPanelMode
 import com.example.moqandroid.ui.app.PublishPanelState
-import com.example.moqandroid.ui.theme.TextPrimary
-import com.example.moqandroid.ui.theme.TextSecondary
-
-private enum class PublishSourceOption(
-    @StringRes val labelRes: Int,
-    val marker: String,
-    @StringRes val stateRes: Int,
-    val enabled: Boolean,
-) {
-    Camera(R.string.publish_source_camera, "CAM", R.string.source_state_next, enabled = false),
-    File(R.string.publish_source_file, "FIL", R.string.source_state_next, enabled = false),
-    Screen(R.string.publish_source_screen, "SCR", R.string.source_state_ready, enabled = true),
-}
 
 @Composable
 fun PublishPanel(
     state: PublishPanelState,
     actions: PublishPanelActions,
 ) {
-    var selectedSource by remember { mutableStateOf(PublishSourceOption.Screen) }
-
     Page {
         Column(
             modifier = Modifier
@@ -87,6 +65,7 @@ fun PublishPanel(
                 PublishingContent(
                     status = state.status,
                     mode = state.mode,
+                    source = state.source,
                     includeSystemAudio = state.includeSystemAudio,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onStopPublish = actions.onStopPublish,
@@ -94,8 +73,8 @@ fun PublishPanel(
             } else {
                 ReadyContent(
                     status = state.status,
-                    selectedSource = selectedSource,
-                    onSelectedSource = { selectedSource = it },
+                    selectedSource = state.source,
+                    onSelectedSource = actions.onSourceChange,
                     includeSystemAudio = state.includeSystemAudio,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onPublish = actions.onPublish,
@@ -108,8 +87,8 @@ fun PublishPanel(
 @Composable
 private fun ReadyContent(
     status: String,
-    selectedSource: PublishSourceOption,
-    onSelectedSource: (PublishSourceOption) -> Unit,
+    selectedSource: PublishSourceType,
+    onSelectedSource: (PublishSourceType) -> Unit,
     includeSystemAudio: Boolean,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onPublish: () -> Unit,
@@ -119,12 +98,25 @@ private fun ReadyContent(
         onSelected = onSelectedSource,
     )
     Spacer(Modifier.height(32.dp))
-    SystemAudioRow(
-        includeSystemAudio = includeSystemAudio,
-        onIncludeSystemAudioChange = onIncludeSystemAudioChange,
-    )
+    when (selectedSource) {
+        PublishSourceType.Screen -> SystemAudioRow(
+            includeSystemAudio = includeSystemAudio,
+            onIncludeSystemAudioChange = onIncludeSystemAudioChange,
+        )
+        PublishSourceType.Camera -> CameraOptionsRow()
+        PublishSourceType.File -> Unit
+    }
     Spacer(Modifier.height(26.dp))
-    PrimaryAction(stringResource(R.string.publish_screen), onPublish)
+    PrimaryAction(
+        stringResource(
+            if (selectedSource == PublishSourceType.Camera) {
+                R.string.publish_camera
+            } else {
+                R.string.publish_screen
+            },
+        ),
+        onPublish,
+    )
     Spacer(Modifier.height(16.dp))
     MoqStatusCard(
         title = stringResource(R.string.status_ready_title),
@@ -136,6 +128,7 @@ private fun ReadyContent(
 private fun PublishingContent(
     status: String,
     mode: PublishPanelMode,
+    source: PublishSourceType,
     includeSystemAudio: Boolean,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onStopPublish: () -> Unit,
@@ -148,18 +141,22 @@ private fun PublishingContent(
     Spacer(Modifier.height(26.dp))
     MoqInfoRow(
         label = stringResource(R.string.publish_source_label),
-        note = stringResource(R.string.publish_source_screen_note),
+        note = stringResource(source.noteRes),
     ) {
         MoqPill(
-            text = stringResource(R.string.publish_source_screen),
+            text = stringResource(source.labelRes),
             selected = false,
         )
     }
     Spacer(Modifier.height(24.dp))
-    SystemAudioRow(
-        includeSystemAudio = includeSystemAudio,
-        onIncludeSystemAudioChange = onIncludeSystemAudioChange,
-    )
+    when (source) {
+        PublishSourceType.Screen -> SystemAudioRow(
+            includeSystemAudio = includeSystemAudio,
+            onIncludeSystemAudioChange = onIncludeSystemAudioChange,
+        )
+        PublishSourceType.Camera -> CameraOptionsRow()
+        PublishSourceType.File -> Unit
+    }
     Spacer(Modifier.height(26.dp))
     SecondaryAction(stringResource(R.string.stop_publish), onStopPublish)
 }
@@ -185,14 +182,14 @@ private val PublishPanelMode.titleRes: Int
 
 @Composable
 private fun SourcePicker(
-    selected: PublishSourceOption,
-    onSelected: (PublishSourceOption) -> Unit,
+    selected: PublishSourceType,
+    onSelected: (PublishSourceType) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(15.dp),
     ) {
-        PublishSourceOption.entries.forEach { source ->
+        PublishSourceType.entries.forEach { source ->
             MoqSourceCard(
                 marker = source.marker,
                 title = stringResource(source.labelRes),
@@ -222,3 +219,48 @@ private fun SystemAudioRow(
         )
     }
 }
+
+@Composable
+private fun CameraOptionsRow() {
+    MoqInfoRow(
+        label = stringResource(R.string.camera_options),
+        note = stringResource(R.string.camera_options_note),
+    ) {
+        MoqPill(
+            text = stringResource(R.string.camera_default),
+            selected = false,
+        )
+    }
+}
+
+private val PublishSourceType.marker: String
+    get() = when (this) {
+        PublishSourceType.Camera -> "CAM"
+        PublishSourceType.File -> "FIL"
+        PublishSourceType.Screen -> "SCR"
+    }
+
+private val PublishSourceType.labelRes: Int
+    @StringRes get() = when (this) {
+        PublishSourceType.Camera -> R.string.publish_source_camera
+        PublishSourceType.File -> R.string.publish_source_file
+        PublishSourceType.Screen -> R.string.publish_source_screen
+    }
+
+private val PublishSourceType.stateRes: Int
+    @StringRes get() = when (this) {
+        PublishSourceType.Camera,
+        PublishSourceType.Screen,
+        -> R.string.source_state_ready
+        PublishSourceType.File -> R.string.source_state_next
+    }
+
+private val PublishSourceType.noteRes: Int
+    @StringRes get() = when (this) {
+        PublishSourceType.Camera -> R.string.publish_source_camera_note
+        PublishSourceType.File -> R.string.publish_source_file_note
+        PublishSourceType.Screen -> R.string.publish_source_screen_note
+    }
+
+private val PublishSourceType.enabled: Boolean
+    get() = this != PublishSourceType.File

@@ -1,6 +1,7 @@
 package com.example.moqandroid.ui.app
 
 import com.example.moqandroid.config.AppLanguage
+import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
 data class RelayConfigUiState(
@@ -35,6 +36,7 @@ enum class PublishPanelMode {
 data class PublishPanelState(
     val relayUrl: String,
     val broadcast: String,
+    val source: PublishSourceType,
     val includeSystemAudio: Boolean,
     val status: String,
     val mode: PublishPanelMode,
@@ -43,6 +45,7 @@ data class PublishPanelState(
 data class PublishPanelActions(
     val onRelayUrlChange: (String) -> Unit,
     val onBroadcastChange: (String) -> Unit,
+    val onSourceChange: (PublishSourceType) -> Unit,
     val onIncludeSystemAudioChange: (Boolean) -> Unit,
     val onPublish: () -> Unit,
     val onStopPublish: () -> Unit,

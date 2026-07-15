@@ -15,7 +15,21 @@ interface VideoPublishSource {
 
     fun detachEncoderSurface()
 
+    fun pollFailure(): Throwable? = null
+
     fun close()
+}
+
+enum class PublishSourceType(val storageValue: String) {
+    Camera("camera"),
+    File("file"),
+    Screen("screen");
+
+    companion object {
+        fun fromStorageValue(value: String?): PublishSourceType {
+            return entries.firstOrNull { it.storageValue == value } ?: Screen
+        }
+    }
 }
 
 interface VideoLayoutTransitionCapability {

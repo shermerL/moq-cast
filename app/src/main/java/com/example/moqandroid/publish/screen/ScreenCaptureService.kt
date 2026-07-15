@@ -18,8 +18,11 @@ import android.util.Log
 import com.example.moqandroid.R
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
+import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFacade
+import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
+import com.example.moqandroid.publish.camera.CameraPublishSource
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import kotlinx.coroutines.CancellationException
@@ -39,16 +42,22 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(LOG_TAG, "screen capture service created")
+        Log.i(LOG_TAG, "publish foreground service created")
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(LOG_TAG, "screen capture service start action=${intent?.action ?: "null"} startId=$startId")
+        val sourceType = intent.publishSourceType()
+        Log.i(
+            LOG_TAG,
+            "publish foreground service start action=${intent?.action ?: "null"} " +
+                "source=${sourceType.storageValue} startId=$startId",
+        )
         if (intent?.action == ACTION_STOP) {
             startForegroundService(
                 relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty(),
                 broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty(),
+                sourceType = sourceType,
             )
             stopPublishing(updateStopped = true)
             stopSelf()
@@ -58,9 +67,11 @@ class ScreenCaptureService : Service() {
         startForegroundService(
             relayUrl = intent?.getStringExtra(EXTRA_RELAY_URL).orEmpty(),
             broadcastName = intent?.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty(),
+            sourceType = sourceType,
         )
 
         if (intent?.action == ACTION_START_PUBLISH) {
+            activeSourceType = sourceType
             startPublishing(intent)
         } else if (intent == null) {
             statusFacade.fail(getString(R.string.screen_publish_service_restarted))
@@ -73,7 +84,7 @@ class ScreenCaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        Log.i(LOG_TAG, "screen capture service destroyed")
+        Log.i(LOG_TAG, "publish foreground service destroyed")
         stopPublishing(updateStopped = statusFacade.canReportStopped)
         serviceScope.cancel()
         super.onDestroy()
@@ -85,8 +96,41 @@ class ScreenCaptureService : Service() {
 
         val relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty()
         val broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty()
-        val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+        val sourceType = intent.publishSourceType()
+
+        if (relayUrl.isBlank() || broadcastName.isBlank()) {
+            statusFacade.fail(getString(R.string.publish_service_missing_args))
+            stopSelf()
+            return
+        }
+
+        publishJob = serviceScope.launch {
+            runCatching {
+                when (sourceType) {
+                    PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName)
+                    PublishSourceType.Screen -> publishScreen(intent, relayUrl, broadcastName)
+                    PublishSourceType.File -> error("File publishing is not implemented.")
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) {
+                    Log.i(LOG_TAG, "publish cancelled source=${sourceType.storageValue}: ${error.message}")
+                    if (generation == publishGeneration) statusFacade.markStopped()
+                } else {
+                    Log.w(LOG_TAG, "publish failed source=${sourceType.storageValue}", error)
+                    if (generation == publishGeneration) {
+                        statusFacade.fail(error.message ?: error::class.java.name)
+                    }
+                }
+            }.also {
+                if (generation == publishGeneration) stopSelf()
+            }
+        }
+    }
+
+    private suspend fun publishScreen(intent: Intent, relayUrl: String, broadcastName: String) {
         val resultData = intent.projectionResultData()
+            ?: error(getString(R.string.screen_publish_service_missing_args))
+        val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val config = ScreenPublishConfig(
             video = ScreenVideoConfig(
                 width = intent.getIntExtra(EXTRA_VIDEO_WIDTH, 1280),
@@ -101,56 +145,49 @@ class ScreenCaptureService : Service() {
                 SystemAudioConfig.Disabled
             },
         )
-
-        if (relayUrl.isBlank() || broadcastName.isBlank() || resultData == null) {
-            statusFacade.fail(getString(R.string.screen_publish_service_missing_args))
-            stopSelf()
-            return
-        }
-
-        publishJob = serviceScope.launch {
-            runCatching {
-                val manager = getSystemService(MediaProjectionManager::class.java)
-                Log.i(LOG_TAG, "creating MediaProjection after foreground service started")
-                val projection = manager.getMediaProjection(resultCode, resultData)
-                    ?: error("Android did not return a MediaProjection.")
-                val projectionCallback = projection.registerStopCallback(currentCoroutineContext()[Job])
-                try {
-                    MoqPublishSession(
-                        relayUrl = relayUrl,
-                        lifecycle = statusFacade.eventSink(),
-                    ).publish(
-                        source = ScreenPublishSource(
-                            context = this@ScreenCaptureService,
-                            projection = projection,
-                            initialConfig = config.video,
-                        ),
-                        broadcastName = broadcastName,
-                        config = PublishSessionConfig(
-                            video = config.video.encoderConfig(),
-                            audio = config.audio,
-                        ),
-                    ) { producer, audioConfig ->
-                        SystemAudioCapture(projection, producer, audioConfig, LOG_TAG).run()
-                    }
-                } finally {
-                    projection.unregisterCallbackSafe(projectionCallback)
-                    projection.stopSafe()
-                }
-            }.onFailure { error ->
-                if (error is CancellationException) {
-                    Log.i(LOG_TAG, "screen publish cancelled: ${error.message}")
-                    if (generation == publishGeneration) statusFacade.markStopped()
-                } else {
-                    Log.w(LOG_TAG, "screen publish failed", error)
-                    if (generation == publishGeneration) {
-                        statusFacade.fail(error.message ?: error::class.java.name)
-                    }
-                }
-            }.also {
-                if (generation == publishGeneration) stopSelf()
+        val manager = getSystemService(MediaProjectionManager::class.java)
+        Log.i(LOG_TAG, "creating MediaProjection after foreground service started")
+        val projection = manager.getMediaProjection(resultCode, resultData)
+            ?: error("Android did not return a MediaProjection.")
+        val projectionCallback = projection.registerStopCallback(currentCoroutineContext()[Job])
+        try {
+            MoqPublishSession(
+                relayUrl = relayUrl,
+                lifecycle = statusFacade.eventSink(),
+            ).publish(
+                source = ScreenPublishSource(
+                    context = this,
+                    projection = projection,
+                    initialConfig = config.video,
+                ),
+                broadcastName = broadcastName,
+                config = PublishSessionConfig(
+                    video = config.video.encoderConfig(),
+                    audio = config.audio,
+                ),
+            ) { producer, audioConfig ->
+                SystemAudioCapture(projection, producer, audioConfig, LOG_TAG).run()
             }
+        } finally {
+            projection.unregisterCallbackSafe(projectionCallback)
+            projection.stopSafe()
         }
+    }
+
+    private suspend fun publishCamera(intent: Intent, relayUrl: String, broadcastName: String) {
+        val cameraConfig = CameraPublishCapabilityResolver.resolve(this)
+        val videoConfig = cameraConfig.encoderConfig(
+            encoderPolicy = intent.encoderPolicy(),
+            h264ProfilePreference = intent.h264ProfilePreference(),
+        )
+        MoqPublishSession(
+            relayUrl = relayUrl,
+            lifecycle = statusFacade.eventSink(),
+        ).publish(
+            source = CameraPublishSource(this, cameraConfig),
+            broadcastName = broadcastName,
+            config = PublishSessionConfig(video = videoConfig),
+        )
     }
 
     private fun MediaProjection.registerStopCallback(job: Job?): MediaProjection.Callback {
@@ -177,12 +214,16 @@ class ScreenCaptureService : Service() {
     private fun stopPublishing(updateStopped: Boolean) {
         publishGeneration += 1
         statusFacade.requestStop()
-        publishJob?.cancel(CancellationException("Screen publish stopped."))
+        publishJob?.cancel(CancellationException("Publish stopped."))
         publishJob = null
         if (updateStopped) statusFacade.markStopped()
     }
 
-    private fun startForegroundService(relayUrl: String, broadcastName: String) {
+    private fun startForegroundService(
+        relayUrl: String,
+        broadcastName: String,
+        sourceType: PublishSourceType,
+    ) {
         val text = buildString {
             append("broadcast=")
             append(broadcastName.ifEmpty { "unknown" })
@@ -193,32 +234,50 @@ class ScreenCaptureService : Service() {
         }
 
         val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.screen_publish_notification_title))
+            .setContentTitle(
+                getString(
+                    if (sourceType == PublishSourceType.Camera) {
+                        R.string.camera_publish_notification_title
+                    } else {
+                        R.string.screen_publish_notification_title
+                    },
+                ),
+            )
             .setContentText("broadcast=${broadcastName.ifEmpty { "unknown" }}")
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_stat_moq)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setShowWhen(false)
             .setOngoing(true)
-            .addAction(stopAction(relayUrl, broadcastName))
+            .addAction(stopAction(relayUrl, broadcastName, sourceType))
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val foregroundServiceType = when (sourceType) {
+                PublishSourceType.Camera -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                PublishSourceType.Screen -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                PublishSourceType.File -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            }
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                foregroundServiceType,
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
 
-    private fun stopAction(relayUrl: String, broadcastName: String): Notification.Action {
+    private fun stopAction(
+        relayUrl: String,
+        broadcastName: String,
+        sourceType: PublishSourceType,
+    ): Notification.Action {
         val stopIntent = Intent(this, ScreenCaptureService::class.java)
             .setAction(ACTION_STOP)
             .putExtra(EXTRA_RELAY_URL, relayUrl)
             .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
+            .putExtra(EXTRA_SOURCE_TYPE, sourceType.storageValue)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         val pendingIntent = PendingIntent.getService(this, 0, stopIntent, flags)
@@ -234,7 +293,7 @@ class ScreenCaptureService : Service() {
 
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.screen_publish_channel_name),
+            getString(R.string.publish_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         )
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -256,13 +315,14 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_SYSTEM_AUDIO = "system_audio"
         private const val EXTRA_ENCODER_POLICY = "encoder_policy"
         private const val EXTRA_H264_PROFILE = "h264_profile"
+        private const val EXTRA_SOURCE_TYPE = "source_type"
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val NOTIFICATION_ID = 1002
 
         private val statusFacade = PublishStatusFacade()
         val status: StateFlow<PublishState> = statusFacade.uiState
 
-        fun start(
+        fun startScreen(
             context: Context,
             relayUrl: String,
             broadcastName: String,
@@ -270,6 +330,7 @@ class ScreenCaptureService : Service() {
             resultData: Intent,
             config: ScreenPublishConfig,
         ) {
+            activeSourceType = PublishSourceType.Screen
             val intent = Intent(context, ScreenCaptureService::class.java)
                 .setAction(ACTION_START_PUBLISH)
                 .putExtra(EXTRA_RELAY_URL, relayUrl)
@@ -282,6 +343,29 @@ class ScreenCaptureService : Service() {
                 .putExtra(EXTRA_SYSTEM_AUDIO, config.audio is SystemAudioConfig.Enabled)
                 .putExtra(EXTRA_ENCODER_POLICY, config.video.encoderPolicy.storageValue)
                 .putExtra(EXTRA_H264_PROFILE, config.video.h264ProfilePreference.storageValue)
+                .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Screen.storageValue)
+            startService(context, intent)
+        }
+
+        fun startCamera(
+            context: Context,
+            relayUrl: String,
+            broadcastName: String,
+            encoderPolicy: VideoEncoderPolicy,
+            h264ProfilePreference: H264ProfilePreference,
+        ) {
+            activeSourceType = PublishSourceType.Camera
+            val intent = Intent(context, ScreenCaptureService::class.java)
+                .setAction(ACTION_START_PUBLISH)
+                .putExtra(EXTRA_RELAY_URL, relayUrl)
+                .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
+                .putExtra(EXTRA_ENCODER_POLICY, encoderPolicy.storageValue)
+                .putExtra(EXTRA_H264_PROFILE, h264ProfilePreference.storageValue)
+                .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Camera.storageValue)
+            startService(context, intent)
+        }
+
+        private fun startService(context: Context, intent: Intent) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -294,12 +378,10 @@ class ScreenCaptureService : Service() {
                 statusFacade.markStopped()
                 return
             }
-            val intent = Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            val intent = Intent(context, ScreenCaptureService::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(EXTRA_SOURCE_TYPE, activeSourceType.storageValue)
+            startService(context, intent)
         }
 
         fun prepare() {
@@ -310,6 +392,8 @@ class ScreenCaptureService : Service() {
             statusFacade.fail(reason)
         }
 
+        @Volatile
+        private var activeSourceType = PublishSourceType.Screen
     }
 
     @Suppress("DEPRECATION")
@@ -330,5 +414,9 @@ class ScreenCaptureService : Service() {
 
     private fun Intent.h264ProfilePreference(): H264ProfilePreference {
         return H264ProfilePreference.fromStorageValue(getStringExtra(EXTRA_H264_PROFILE))
+    }
+
+    private fun Intent?.publishSourceType(): PublishSourceType {
+        return PublishSourceType.fromStorageValue(this?.getStringExtra(EXTRA_SOURCE_TYPE))
     }
 }

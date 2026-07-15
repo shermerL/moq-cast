@@ -8,7 +8,7 @@
     <string name="publish_tab">发布</string>
     <string name="subscribe_tab">订阅</string>
     <string name="publish_title">发布</string>
-    <string name="publish_description">输入 broadcast，采集当前 Android 屏幕并发布到 relay。</string>
+    <string name="publish_description">选择视频来源，并发布到 relay 上的 broadcast。</string>
     <string name="subscribe_title">订阅</string>
     <string name="subscribe_description">输入 broadcast，进入全屏播放器订阅并播放视频流。</string>
     <string name="broadcast_label">Broadcast</string>
@@ -26,15 +26,21 @@
     <string name="publish_source_camera">摄像头</string>
     <string name="publish_source_file">文件</string>
     <string name="publish_source_screen">屏幕</string>
+    <string name="publish_source_camera_note">正在使用后置摄像头来源。</string>
+    <string name="publish_source_file_note">文件发布暂未开放。</string>
     <string name="publish_source_screen_note">正在使用屏幕采集来源。</string>
     <string name="source_state_next">后续</string>
     <string name="source_state_ready">就绪</string>
     <string name="coming_soon">即将支持</string>
     <string name="screen_options">屏幕选项</string>
+    <string name="camera_options">摄像头选项</string>
+    <string name="camera_options_note">后置摄像头，约 720p、30 fps，仅视频。</string>
+    <string name="camera_default">后置</string>
     <string name="system_audio_label">系统音频</string>
     <string name="system_audio_note">默认关闭。仅 Android 10+。</string>
     <string name="include_system_audio">包含系统音频</string>
     <string name="publish_screen">发布屏幕</string>
+    <string name="publish_camera">发布摄像头</string>
     <string name="stop_publish">停止发布</string>
     <string name="subscribe_action">订阅</string>
     <string name="player_preview_label">播放器预览</string>
@@ -66,14 +72,15 @@
     <string name="h264_profile_baseline">Baseline</string>
     <string name="h264_profile_high">High</string>
     <string name="publish_status_starting">正在启动屏幕发布 ...</string>
-    <string name="publish_status_preparing">正在准备屏幕发布 ...</string>
+    <string name="publish_status_starting_camera">正在启动摄像头发布 ...</string>
+    <string name="publish_status_preparing">正在准备发布 ...</string>
     <string name="publish_status_connecting">正在发布到 %1$s ...\nbroadcast=%2$s</string>
     <string name="publish_status_publishing">正在发布到 %1$s\nbroadcast=%2$s\nvideo=%3$dx%4$d %5$dfps target=%6$dkbps\n系统音频=%7$s</string>
     <string name="publish_status_stats">正在发布到 %1$s\nbroadcast=%2$s\nsent=%3$d frames bytes=%4$d bitrate=%5$.0fkbps</string>
-    <string name="publish_status_stopping">正在停止屏幕发布 ...</string>
-    <string name="publish_status_stopped">屏幕发布已停止。</string>
+    <string name="publish_status_stopping">正在停止发布 ...</string>
+    <string name="publish_status_stopped">发布已停止。</string>
     <string name="publish_status_audio_failed">系统音频采集失败:\n%1$s\n视频发布仍在运行。</string>
-    <string name="publish_status_failed">屏幕发布失败:\n%1$s</string>
+    <string name="publish_status_failed">发布失败:\n%1$s</string>
     <string name="system_audio_on">on</string>
     <string name="system_audio_off">off</string>
     <string name="status_ready_title">就绪</string>
@@ -84,9 +91,13 @@
     <string name="broadcast_empty">Broadcast 名称不能为空。</string>
     <string name="screen_publish_stopped">屏幕发布已停止。</string>
     <string name="screen_capture_permission_denied">屏幕采集权限被拒绝。</string>
+    <string name="camera_permission_denied">摄像头权限被拒绝。</string>
+    <string name="publish_service_missing_args">缺少发布服务参数。</string>
     <string name="screen_publish_service_missing_args">缺少屏幕发布服务参数。</string>
     <string name="screen_publish_service_restarted">屏幕发布服务重启时缺少投屏权限。</string>
     <string name="screen_publish_notification_title">MoQCast 屏幕发布</string>
+    <string name="camera_publish_notification_title">MoQCast 摄像头发布</string>
+    <string name="publish_channel_name">MoQCast 发布</string>
     <string name="screen_publish_channel_name">屏幕发布</string>
     <string name="stop">停止</string>
 </resources>

@@ -184,6 +184,7 @@ class SurfaceVideoEncoder(
         var outputWasSuspended = false
         var layoutReadySent = generation == null
         while (coroutineContext.isActive) {
+            source.pollFailure()?.let { throw it }
             publishPendingLayoutEvents()
             layoutTransitions?.pollConfigChange()?.let { nextConfig ->
                 if (

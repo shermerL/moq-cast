@@ -18,10 +18,15 @@ import com.example.moqandroid.config.SettingsState
 import com.example.moqandroid.config.withAppLanguage
 import com.example.moqandroid.playback.PlaybackController
 import com.example.moqandroid.playback.PlayerState
+import com.example.moqandroid.publish.CameraPublishStartRequest
 import com.example.moqandroid.publish.PublishController
+import com.example.moqandroid.publish.PublishPermissions
+import com.example.moqandroid.publish.PublishPreparationInput
 import com.example.moqandroid.publish.PublishRequest
+import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFormatter
+import com.example.moqandroid.publish.ScreenPublishStartRequest
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.ui.app.PublishPanelMode
@@ -80,6 +85,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var subscribeStatusMessage by mutableStateOf(text(R.string.ready_subscribe))
         private set
     var includeSystemAudio by mutableStateOf(false)
+        private set
+    var publishSource by mutableStateOf(PublishSourceType.Screen)
         private set
     var playerBroadcast by mutableStateOf<String?>(null)
         private set
@@ -173,6 +180,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         includeSystemAudio = value
     }
 
+    fun updatePublishSource(value: PublishSourceType) {
+        publishSource = value
+        if (value != PublishSourceType.Screen) includeSystemAudio = false
+    }
+
     fun showMainUi() {
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         playerBroadcast = null
@@ -233,7 +245,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return nextBroadcast
     }
 
-    fun prepareScreenPublish(
+    fun preparePublish(
+        hasCameraPermission: Boolean,
         hasRecordAudioPermission: Boolean,
         hasNotificationPermission: Boolean,
     ): PublishRequest {
@@ -241,10 +254,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         applyRelayConfig(nextRelayConfig)
 
         val preparation = publishController.prepare(
-            broadcastInput = publishBroadcastName,
-            includeSystemAudio = includeSystemAudio,
-            hasRecordAudioPermission = hasRecordAudioPermission,
-            hasNotificationPermission = hasNotificationPermission,
+            PublishPreparationInput(
+                source = publishSource,
+                broadcastInput = publishBroadcastName,
+                includeSystemAudio = includeSystemAudio,
+                permissions = PublishPermissions(
+                    camera = hasCameraPermission,
+                    notifications = hasNotificationPermission,
+                    recordAudio = hasRecordAudioPermission,
+                ),
+            ),
         )
         preparation.broadcastName?.let { activeBroadcastName = it }
         updatePublishHomeStatus(preparation.message)
@@ -257,15 +276,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         metrics: DisplayMetrics,
     ) {
         publishStatusMessage = text(R.string.publish_status_starting)
-        publishController.start(
-            relayConfig = relayConfig,
-            broadcastName = activeBroadcastName,
-            resultCode = resultCode,
-            resultData = resultData,
-            metrics = metrics,
-            includeSystemAudio = includeSystemAudio,
-            encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
-            h264ProfilePreference = configState.h264ProfilePreference,
+        publishController.startScreen(
+            ScreenPublishStartRequest(
+                relayConfig = relayConfig,
+                broadcastName = activeBroadcastName,
+                resultCode = resultCode,
+                resultData = resultData,
+                metrics = metrics,
+                includeSystemAudio = includeSystemAudio,
+                encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
+                h264ProfilePreference = configState.h264ProfilePreference,
+            ),
+        )
+    }
+
+    fun startCameraPublish() {
+        publishStatusMessage = text(R.string.publish_status_starting_camera)
+        publishController.startCamera(
+            CameraPublishStartRequest(
+                relayConfig = relayConfig,
+                broadcastName = activeBroadcastName,
+                encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
+                h264ProfilePreference = configState.h264ProfilePreference,
+            ),
         )
     }
 

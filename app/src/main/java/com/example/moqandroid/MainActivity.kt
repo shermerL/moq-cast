@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                             publish = PublishPanelState(
                                 relayUrl = viewModel.homeRelayUrl,
                                 broadcast = viewModel.publishBroadcastName,
+                                source = viewModel.publishSource,
                                 includeSystemAudio = viewModel.includeSystemAudio,
                                 status = viewModel.publishStatusMessage,
                                 mode = viewModel.publishPanelMode,
@@ -100,8 +101,9 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                             publish = PublishPanelActions(
                                 onRelayUrlChange = viewModel::updateHomeRelayUrl,
                                 onBroadcastChange = viewModel::updatePublishBroadcast,
+                                onSourceChange = viewModel::updatePublishSource,
                                 onIncludeSystemAudioChange = viewModel::updateIncludeSystemAudio,
-                                onPublish = ::requestScreenPublish,
+                                onPublish = ::requestPublish,
                                 onStopPublish = { viewModel.stopPublish(localizedText(R.string.screen_publish_stopped)) },
                             ),
                             subscribe = SubscribePanelActions(
@@ -126,20 +128,23 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         }
     }
 
-    private fun requestScreenPublish() {
+    private fun requestPublish() {
         when (
-            viewModel.prepareScreenPublish(
+            viewModel.preparePublish(
+                hasCameraPermission = hasCameraPermission(),
                 hasRecordAudioPermission = hasRecordAudioPermission(),
                 hasNotificationPermission = hasNotificationPermission(),
             )
         ) {
             PublishRequest.None -> Unit
+            PublishRequest.RequestCamera -> requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA)
             PublishRequest.RequestRecordAudio -> requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
             PublishRequest.RequestNotifications -> requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
             PublishRequest.RequestScreenCapture -> startActivityForResult(
                 projectionManager.createScreenCaptureIntent(),
                 REQUEST_SCREEN_CAPTURE,
             )
+            PublishRequest.StartCamera -> viewModel.startCameraPublish()
         }
     }
 
@@ -148,11 +153,17 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         when (requestCode) {
             REQUEST_NOTIFICATIONS,
             REQUEST_RECORD_AUDIO,
+            REQUEST_CAMERA,
             -> {
                 if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    requestScreenPublish()
+                    requestPublish()
                 } else {
-                    viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
+                    val message = if (requestCode == REQUEST_CAMERA) {
+                        localizedText(R.string.camera_permission_denied)
+                    } else {
+                        localizedText(R.string.screen_capture_permission_denied)
+                    }
+                    viewModel.failPublish(message)
                 }
             }
         }
@@ -349,6 +360,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun hasCameraPermission(): Boolean {
+        return checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun hasNotificationPermission(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -414,6 +429,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         private const val REQUEST_SCREEN_CAPTURE = 1001
         private const val REQUEST_NOTIFICATIONS = 1002
         private const val REQUEST_RECORD_AUDIO = 1003
+        private const val REQUEST_CAMERA = 1004
         private const val LOG_TAG = "MoqAndroid"
     }
 }

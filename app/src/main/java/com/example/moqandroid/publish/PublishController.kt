@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.DisplayMetrics
 import com.example.moqandroid.config.RelayConfig
 import com.example.moqandroid.media.codec.CodecSupport
+import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.publish.screen.ScreenCaptureService
@@ -18,13 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 class PublishController(private val context: Context) {
     val status: StateFlow<PublishState> = ScreenCaptureService.status
 
-    fun prepare(
-        broadcastInput: String,
-        includeSystemAudio: Boolean,
-        hasRecordAudioPermission: Boolean,
-        hasNotificationPermission: Boolean,
-    ): PublishPreparation {
-        val broadcastName = broadcastInput.trim().trim('/')
+    fun prepare(input: PublishPreparationInput): PublishPreparation {
+        val broadcastName = input.broadcastInput.trim().trim('/')
         if (broadcastName.isEmpty()) {
             return PublishPreparation(PublishRequest.None, null, "Broadcast name cannot be empty.")
         }
@@ -36,14 +32,25 @@ class PublishController(private val context: Context) {
                 "This device has no H.264 encoder.\n${CodecSupport.describeVideoEncoders()}",
             )
         }
-        if (includeSystemAudio && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (input.source == PublishSourceType.File) {
+            return PublishPreparation(PublishRequest.None, broadcastName, "File publishing is not implemented.")
+        }
+        if (
+            input.source == PublishSourceType.Screen &&
+            input.includeSystemAudio &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+        ) {
             return PublishPreparation(
                 PublishRequest.None,
                 broadcastName,
                 "System audio capture requires Android 10+.\nbroadcast=$broadcastName",
             )
         }
-        if (includeSystemAudio && !hasRecordAudioPermission) {
+        if (
+            input.source == PublishSourceType.Screen &&
+            input.includeSystemAudio &&
+            !input.permissions.recordAudio
+        ) {
             ScreenCaptureService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
@@ -51,40 +58,76 @@ class PublishController(private val context: Context) {
                 "Audio permission is required before publishing system audio.\nbroadcast=$broadcastName",
             )
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+        if (input.source == PublishSourceType.Camera && !input.permissions.camera) {
+            ScreenCaptureService.prepare()
+            return PublishPreparation(
+                PublishRequest.RequestCamera,
+                broadcastName,
+                "Camera permission is required before publishing video.\nbroadcast=$broadcastName",
+            )
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !input.permissions.notifications) {
             ScreenCaptureService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestNotifications,
                 broadcastName,
-                "Notification permission is required before screen publish.\nbroadcast=$broadcastName",
+                "Notification permission is required before publishing.\nbroadcast=$broadcastName",
             )
         }
 
         ScreenCaptureService.prepare()
-        return PublishPreparation(
-            PublishRequest.RequestScreenCapture,
-            broadcastName,
-            "Requesting screen capture permission ...\nbroadcast=$broadcastName",
+        return when (input.source) {
+            PublishSourceType.Camera -> runCatching {
+                CameraPublishCapabilityResolver.resolve(context)
+            }.fold(
+                onSuccess = { camera ->
+                    PublishPreparation(
+                        PublishRequest.StartCamera,
+                        broadcastName,
+                        "Starting rear camera ${camera.width}x${camera.height} ...\nbroadcast=$broadcastName",
+                    )
+                },
+                onFailure = { error ->
+                    ScreenCaptureService.fail(error.message ?: error::class.java.name)
+                    PublishPreparation(
+                        PublishRequest.None,
+                        broadcastName,
+                        "Camera publish is unavailable: ${error.message ?: error::class.java.simpleName}",
+                    )
+                },
+            )
+            PublishSourceType.Screen -> PublishPreparation(
+                PublishRequest.RequestScreenCapture,
+                broadcastName,
+                "Requesting screen capture permission ...\nbroadcast=$broadcastName",
+            )
+            PublishSourceType.File -> error("File source was handled before publish preparation.")
+        }
+    }
+
+    fun startScreen(request: ScreenPublishStartRequest) {
+        ScreenCaptureService.startScreen(
+            context = context,
+            relayUrl = request.relayConfig.relayUrl,
+            broadcastName = request.broadcastName,
+            resultCode = request.resultCode,
+            resultData = request.resultData,
+            config = screenPublishConfig(
+                request.metrics,
+                request.includeSystemAudio,
+                request.encoderPolicy,
+                request.h264ProfilePreference,
+            ),
         )
     }
 
-    fun start(
-        relayConfig: RelayConfig,
-        broadcastName: String,
-        resultCode: Int,
-        resultData: Intent,
-        metrics: DisplayMetrics,
-        includeSystemAudio: Boolean,
-        encoderPolicy: VideoEncoderPolicy,
-        h264ProfilePreference: H264ProfilePreference,
-    ) {
-        ScreenCaptureService.start(
+    fun startCamera(request: CameraPublishStartRequest) {
+        ScreenCaptureService.startCamera(
             context = context,
-            relayUrl = relayConfig.relayUrl,
-            broadcastName = broadcastName,
-            resultCode = resultCode,
-            resultData = resultData,
-            config = screenPublishConfig(metrics, includeSystemAudio, encoderPolicy, h264ProfilePreference),
+            relayUrl = request.relayConfig.relayUrl,
+            broadcastName = request.broadcastName,
+            encoderPolicy = request.encoderPolicy,
+            h264ProfilePreference = request.h264ProfilePreference,
         )
     }
 
@@ -131,9 +174,42 @@ data class PublishPreparation(
     val message: String,
 )
 
+data class PublishPreparationInput(
+    val source: PublishSourceType,
+    val broadcastInput: String,
+    val includeSystemAudio: Boolean,
+    val permissions: PublishPermissions,
+)
+
+data class PublishPermissions(
+    val camera: Boolean,
+    val notifications: Boolean,
+    val recordAudio: Boolean,
+)
+
+data class ScreenPublishStartRequest(
+    val relayConfig: RelayConfig,
+    val broadcastName: String,
+    val resultCode: Int,
+    val resultData: Intent,
+    val metrics: DisplayMetrics,
+    val includeSystemAudio: Boolean,
+    val encoderPolicy: VideoEncoderPolicy,
+    val h264ProfilePreference: H264ProfilePreference,
+)
+
+data class CameraPublishStartRequest(
+    val relayConfig: RelayConfig,
+    val broadcastName: String,
+    val encoderPolicy: VideoEncoderPolicy,
+    val h264ProfilePreference: H264ProfilePreference,
+)
+
 sealed interface PublishRequest {
     data object None : PublishRequest
+    data object RequestCamera : PublishRequest
     data object RequestRecordAudio : PublishRequest
     data object RequestNotifications : PublishRequest
     data object RequestScreenCapture : PublishRequest
+    data object StartCamera : PublishRequest
 }
