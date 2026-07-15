@@ -13,6 +13,7 @@ import android.view.Surface
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
 import com.example.moqandroid.publish.VideoPublishTransition
+import com.example.moqandroid.publish.VideoLayoutTransitionCapability
 import com.example.moqandroid.protocol.VideoLayoutEvent
 import com.example.moqandroid.protocol.VideoLayoutPhase
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -22,8 +23,9 @@ class ScreenPublishSource(
     context: Context,
     private val projection: MediaProjection,
     initialConfig: ScreenVideoConfig,
-) : VideoPublishSource {
+) : VideoPublishSource, VideoLayoutTransitionCapability {
     override val label: String = "screen"
+    override val layoutTransitions: VideoLayoutTransitionCapability = this
 
     private val displayManager = context.getSystemService(DisplayManager::class.java)
     private val handler = Handler(Looper.getMainLooper())

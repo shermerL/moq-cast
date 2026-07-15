@@ -33,8 +33,11 @@ class MoqPublishSession(
             MoqBroadcastProducer().use { broadcast ->
                 Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
                 val media = broadcast.publishMediaStream("avc3")
-                val videoLayout = broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME)
-                broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
+                val videoLayout = source.layoutTransitions?.let {
+                    broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME).also {
+                        broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
+                    }
+                }
                 val audio = (config.audio as? SystemAudioConfig.Enabled)?.let { audioConfig ->
                     Log.i(
                         LOG_TAG,
@@ -86,7 +89,7 @@ class MoqPublishSession(
                                     }
                                 }
                             } finally {
-                                runCatching { videoLayout.finish() }
+                                videoLayout?.let { runCatching { it.finish() } }
                                 runCatching { broadcast.finish() }
                                 session.shutdown()
                             }

@@ -8,19 +8,24 @@ import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 interface VideoPublishSource {
     val label: String
 
+    val layoutTransitions: VideoLayoutTransitionCapability?
+        get() = null
+
     fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig)
 
     fun detachEncoderSurface()
 
-    fun isOutputSuspended(): Boolean = false
-
-    fun pollConfigChange(): VideoPublishTransition? = null
-
-    fun pollLayoutEvent(): VideoLayoutEvent? = null
-
-    fun onLayoutReady(generation: Long) = Unit
-
     fun close()
+}
+
+interface VideoLayoutTransitionCapability {
+    fun isOutputSuspended(): Boolean
+
+    fun pollConfigChange(): VideoPublishTransition?
+
+    fun pollLayoutEvent(): VideoLayoutEvent?
+
+    fun onLayoutReady(generation: Long)
 }
 
 data class VideoPublishTransition(

@@ -26,11 +26,12 @@ import kotlin.coroutines.coroutineContext
 class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
     private val media: MoqMediaStreamProducer,
-    private val videoLayout: MoqTrackProducer,
+    private val videoLayout: MoqTrackProducer?,
     private val relayUrl: String,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
     private val attemptPlanner = H264EncoderAttemptPlanner()
+    private val layoutTransitions = source.layoutTransitions
 
     suspend fun run(
         config: VideoPublishConfig,
@@ -184,7 +185,7 @@ class SurfaceVideoEncoder(
         var layoutReadySent = generation == null
         while (coroutineContext.isActive) {
             publishPendingLayoutEvents()
-            source.pollConfigChange()?.let { nextConfig ->
+            layoutTransitions?.pollConfigChange()?.let { nextConfig ->
                 if (
                     nextConfig.config.width != activeConfig.width ||
                     nextConfig.config.height != activeConfig.height
@@ -221,7 +222,7 @@ class SurfaceVideoEncoder(
                             continue
                         }
 
-                        if (source.isOutputSuspended()) {
+                        if (layoutTransitions?.isOutputSuspended() == true) {
                             if (!outputWasSuspended) {
                                 Log.i(
                                     LOG_TAG,
@@ -277,7 +278,7 @@ class SurfaceVideoEncoder(
                                     rotation = null,
                                 ),
                             )
-                            source.onLayoutReady(generation)
+                            layoutTransitions?.onLayoutReady(generation)
                             layoutReadySent = true
                         }
                         stats.onFrame(frame.size, lifecycle::emit)
@@ -289,14 +290,16 @@ class SurfaceVideoEncoder(
     }
 
     private fun publishPendingLayoutEvents() {
+        val transitions = layoutTransitions ?: return
         while (true) {
-            val event = source.pollLayoutEvent() ?: return
+            val event = transitions.pollLayoutEvent() ?: return
             publishLayoutEvent(event)
         }
     }
 
     private fun publishLayoutEvent(event: VideoLayoutEvent) {
-        runCatching { videoLayout.writeFrame(event.encode()) }
+        val producer = videoLayout ?: return
+        runCatching { producer.writeFrame(event.encode()) }
             .onSuccess {
                 Log.i(
                     LOG_TAG,
