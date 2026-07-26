@@ -2,6 +2,7 @@ package com.example.moqandroid.ui.app
 
 import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.publish.PublishSourceType
+import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
 data class RelayConfigUiState(
@@ -39,6 +40,7 @@ data class PublishPanelState(
     val source: PublishSourceType,
     val includeSystemAudio: Boolean,
     val includeMicrophone: Boolean,
+    val cameraLensFacing: CameraLensFacing,
     val status: String,
     val mode: PublishPanelMode,
 )
@@ -49,6 +51,7 @@ data class PublishPanelActions(
     val onSourceChange: (PublishSourceType) -> Unit,
     val onIncludeSystemAudioChange: (Boolean) -> Unit,
     val onIncludeMicrophoneChange: (Boolean) -> Unit,
+    val onCameraLensFacingChange: (CameraLensFacing) -> Unit,
     val onPublish: () -> Unit,
     val onStopPublish: () -> Unit,
 )

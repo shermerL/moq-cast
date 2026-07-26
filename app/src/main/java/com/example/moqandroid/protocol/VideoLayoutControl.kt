@@ -78,7 +78,7 @@ fun videoLayoutCatalogSection(): String {
 }
 
 fun MoqCatalog.videoLayoutTrackName(): String? = runCatching {
-    val section = extra[MOQCAST_CATALOG_SECTION] ?: return null
+    val section = sections[MOQCAST_CATALOG_SECTION] ?: return null
     val videoLayout = JSONObject(section).getJSONObject("videoLayout")
     if (videoLayout.getInt("version") != VIDEO_LAYOUT_PROTOCOL_VERSION) return null
     videoLayout.getString("track").takeIf { it.isNotBlank() }

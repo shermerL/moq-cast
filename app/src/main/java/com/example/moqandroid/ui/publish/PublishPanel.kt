@@ -15,6 +15,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.moqandroid.R
 import com.example.moqandroid.publish.PublishSourceType
+import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.MoqBrandHeader
 import com.example.moqandroid.ui.components.MoqInfoRow
@@ -68,6 +69,7 @@ fun PublishPanel(
                     source = state.source,
                     includeSystemAudio = state.includeSystemAudio,
                     includeMicrophone = state.includeMicrophone,
+                    cameraLensFacing = state.cameraLensFacing,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onIncludeMicrophoneChange = actions.onIncludeMicrophoneChange,
                     onStopPublish = actions.onStopPublish,
@@ -79,8 +81,10 @@ fun PublishPanel(
                     onSelectedSource = actions.onSourceChange,
                     includeSystemAudio = state.includeSystemAudio,
                     includeMicrophone = state.includeMicrophone,
+                    cameraLensFacing = state.cameraLensFacing,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onIncludeMicrophoneChange = actions.onIncludeMicrophoneChange,
+                    onCameraLensFacingChange = actions.onCameraLensFacingChange,
                     onPublish = actions.onPublish,
                 )
             }
@@ -95,8 +99,10 @@ private fun ReadyContent(
     onSelectedSource: (PublishSourceType) -> Unit,
     includeSystemAudio: Boolean,
     includeMicrophone: Boolean,
+    cameraLensFacing: CameraLensFacing,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
+    onCameraLensFacingChange: (CameraLensFacing) -> Unit,
     onPublish: () -> Unit,
 ) {
     SourcePicker(
@@ -110,7 +116,10 @@ private fun ReadyContent(
             onIncludeSystemAudioChange = onIncludeSystemAudioChange,
         )
         PublishSourceType.Camera -> {
-            CameraOptionsRow()
+            CameraOptionsRow(
+                selected = cameraLensFacing,
+                onSelected = onCameraLensFacingChange,
+            )
             Spacer(Modifier.height(24.dp))
             MicrophoneRow(includeMicrophone, onIncludeMicrophoneChange)
         }
@@ -141,6 +150,7 @@ private fun PublishingContent(
     source: PublishSourceType,
     includeSystemAudio: Boolean,
     includeMicrophone: Boolean,
+    cameraLensFacing: CameraLensFacing,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
     onStopPublish: () -> Unit,
@@ -167,7 +177,10 @@ private fun PublishingContent(
             onIncludeSystemAudioChange = onIncludeSystemAudioChange,
         )
         PublishSourceType.Camera -> {
-            CameraOptionsRow()
+            CameraOptionsRow(
+                selected = cameraLensFacing,
+                onSelected = null,
+            )
             Spacer(Modifier.height(24.dp))
             MicrophoneRow(includeMicrophone, onIncludeMicrophoneChange)
         }
@@ -237,15 +250,24 @@ private fun SystemAudioRow(
 }
 
 @Composable
-private fun CameraOptionsRow() {
+private fun CameraOptionsRow(
+    selected: CameraLensFacing,
+    onSelected: ((CameraLensFacing) -> Unit)?,
+) {
     MoqInfoRow(
         label = stringResource(R.string.camera_options),
         note = stringResource(R.string.camera_options_note),
     ) {
-        MoqPill(
-            text = stringResource(R.string.camera_default),
-            selected = false,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CameraLensFacing.entries.forEach { lensFacing ->
+                MoqPill(
+                    text = stringResource(lensFacing.labelRes),
+                    selected = selected == lensFacing,
+                    enabled = onSelected != null,
+                    onClick = onSelected?.let { select -> { select(lensFacing) } },
+                )
+            }
+        }
     }
 }
 
@@ -297,6 +319,12 @@ private val PublishSourceType.noteRes: Int
         PublishSourceType.Camera -> R.string.publish_source_camera_note
         PublishSourceType.File -> R.string.publish_source_file_note
         PublishSourceType.Screen -> R.string.publish_source_screen_note
+    }
+
+private val CameraLensFacing.labelRes: Int
+    @StringRes get() = when (this) {
+        CameraLensFacing.Back -> R.string.camera_rear
+        CameraLensFacing.Front -> R.string.camera_front
     }
 
 private val PublishSourceType.enabled: Boolean

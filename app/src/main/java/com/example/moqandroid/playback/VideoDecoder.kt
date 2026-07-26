@@ -30,7 +30,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         val runtime = VideoDecodeRuntime(config, callbacks, info, stats, transitionState, transitionTrace)
 
         while (coroutineContext.isActive) {
-            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks.nextTransitionId, transitionTrace)
+            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
                 ?.let { return@coroutineScope it }
             val frame = config.media.next() ?: break
             val payload = frame.payloadForDecoder(config.avcConfig)
@@ -39,7 +39,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
 
             var queued = false
             while (!queued) {
-                transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks.nextTransitionId, transitionTrace)
+                transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
                     ?.let { return@coroutineScope it }
                 val inputIndex = config.codec.dequeueInputBuffer(10_000)
                 if (inputIndex >= 0) {
@@ -60,7 +60,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                 stats.renderedFrames += drainResult.renderedFrames
             }
 
-            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks.nextTransitionId, transitionTrace)
+            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
                 ?.let { return@coroutineScope it }
             val drainResult = drainDecoder(runtime)
             stats.renderedFrames += drainResult.renderedFrames
@@ -264,9 +264,9 @@ private class VideoTrackTransitionState(
         return transitionId
     }
 
-    fun consumeCatalogUpdates(
+    suspend fun consumeCatalogUpdates(
         videoTrackUpdates: ReceiveChannel<PlaybackVideoTrackUpdate>,
-        nextTransitionId: () -> Int,
+        callbacks: VideoDecodeCallbacks,
         transitionTrace: DecoderTransitionTrace,
     ): VideoDecodeResult.RestartDecoder? {
         var latest: PlaybackVideoTrackUpdate? = null
@@ -284,7 +284,27 @@ private class VideoTrackTransitionState(
             return VideoDecodeResult.RestartDecoder(update, nextVideoInfo)
         }
 
+        if (activeVideoInfo.rotationDegrees != nextVideoInfo.rotationDegrees) {
+            Log.i(
+                LOG_TAG,
+                "restarting decoder for rotation change " +
+                    "${activeVideoInfo.rotationDegrees} -> ${nextVideoInfo.rotationDegrees}",
+            )
+            return VideoDecodeResult.RestartDecoder(update, nextVideoInfo)
+        }
+
         if (activeVideoInfo.hasSameDisplaySize(nextVideoInfo)) {
+            if (!activeVideoInfo.hasSamePresentation(nextVideoInfo)) {
+                val transitionId = callbacks.nextTransitionId()
+                transitionTrace.begin(transitionId)
+                Log.i(
+                    LOG_TAG,
+                    "rotationTrace=$transitionId catalog presentation changed " +
+                        "rotation=${activeVideoInfo.rotationDegrees}->${nextVideoInfo.rotationDegrees} " +
+                        "flip=${activeVideoInfo.flip}->${nextVideoInfo.flip}",
+                )
+                callbacks.onVideoFormatTransition(nextVideoInfo, transitionId)
+            }
             activeVideoInfo = nextVideoInfo
             pendingTransition = null
             return null
@@ -303,7 +323,7 @@ private class VideoTrackTransitionState(
         val transitionId = pendingTransition
             ?.takeIf { it.update.videoInfo.hasSameDisplaySize(nextVideoInfo) }
             ?.transitionId
-            ?: nextTransitionId()
+            ?: callbacks.nextTransitionId()
         pendingTransition = PendingVideoTransition(update, transitionId)
         transitionTrace.begin(transitionId)
         Log.i(
@@ -429,6 +449,10 @@ private class DecoderTransitionTrace {
 
 private fun PlayableVideoInfo.hasSameDisplaySize(other: PlayableVideoInfo): Boolean {
     return displayWidth == other.displayWidth && displayHeight == other.displayHeight
+}
+
+private fun PlayableVideoInfo.hasSamePresentation(other: PlayableVideoInfo): Boolean {
+    return rotationDegrees == other.rotationDegrees && flip == other.flip
 }
 
 private fun PlaybackVideoTrackUpdate.matchesOutput(width: Int, height: Int): Boolean {

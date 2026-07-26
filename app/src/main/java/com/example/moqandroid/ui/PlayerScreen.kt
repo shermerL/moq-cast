@@ -19,6 +19,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.playback.PlaybackLayoutView
+import com.example.moqandroid.playback.calculateVideoPresentationLayout
 import com.example.moqandroid.protocol.VideoLayoutEvent
 
 class PlayerScreen(
@@ -28,6 +29,8 @@ class PlayerScreen(
 ) : PlaybackLayoutView {
     private var videoWidth: Int? = null
     private var videoHeight: Int? = null
+    private var videoRotationDegrees = 0
+    private var videoFlip = false
     private var pendingLayoutReady: (() -> Unit)? = null
     private var activeTransitionId: Int? = null
     private var traceGeneration = 0
@@ -45,6 +48,12 @@ class PlayerScreen(
     val surfaceView: SurfaceView = SurfaceView(activity).apply {
         isFocusable = false
         holder.addCallback(surfaceCallback)
+    }
+
+    private val videoPresentation = FrameLayout(activity).apply {
+        clipChildren = false
+        clipToPadding = false
+        addView(surfaceView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
     }
 
     val status: TextView = TextView(activity).apply {
@@ -68,7 +77,7 @@ class PlayerScreen(
 
     private val rootFrame = FrameLayout(activity).apply {
         setBackgroundColor(Color.BLACK)
-        addView(surfaceView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        addView(videoPresentation, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         addView(videoFreeze, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         addView(videoShutter, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         addView(
@@ -256,6 +265,8 @@ class PlayerScreen(
     override fun setVideoSize(
         width: Int?,
         height: Int?,
+        rotationDegrees: Int,
+        flip: Boolean,
         transitionId: Int?,
         onLayoutReady: (() -> Unit)?,
     ) {
@@ -267,8 +278,13 @@ class PlayerScreen(
         }
         videoWidth = width?.takeIf { it > 0 }
         videoHeight = height?.takeIf { it > 0 }
+        videoRotationDegrees = rotationDegrees
+        videoFlip = flip
         pendingLayoutReady = onLayoutReady
-        logSnapshot("video size set source=${videoWidth}x$videoHeight")
+        logSnapshot(
+            "video presentation set display=${videoWidth}x$videoHeight " +
+                "rotation=$videoRotationDegrees flip=$videoFlip",
+        )
         scheduleSurfaceLayout()
     }
 
@@ -295,34 +311,60 @@ class PlayerScreen(
             return
         }
 
-        val containerRatio = containerWidth.toFloat() / containerHeight
-        val sourceRatio = sourceWidth.toFloat() / sourceHeight
-        val targetWidth: Int
-        val targetHeight: Int
+        val layout = calculateVideoPresentationLayout(
+            containerWidth = containerWidth,
+            containerHeight = containerHeight,
+            displayWidth = sourceWidth,
+            displayHeight = sourceHeight,
+        ) ?: return
+        val targetWidth = layout.displayWidth
+        val targetHeight = layout.displayHeight
+        val surfaceWidth = layout.surfaceWidth
+        val surfaceHeight = layout.surfaceHeight
 
-        if (sourceRatio > containerRatio) {
-            targetWidth = containerWidth
-            targetHeight = (containerWidth / sourceRatio).toInt()
-        } else {
-            targetHeight = containerHeight
-            targetWidth = (containerHeight * sourceRatio).toInt()
-        }
+        // SurfaceView owns a separately composed surface, so apply the mirror to the
+        // SurfaceView itself instead of relying on a parent View transform.
+        surfaceView.scaleX = if (videoFlip) -1f else 1f
 
-        val current = surfaceView.layoutParams as FrameLayout.LayoutParams
-        if (current.width == targetWidth && current.height == targetHeight && current.gravity == Gravity.CENTER) {
-            notifyLayoutReadyWhenStable(targetWidth, targetHeight)
+        val presentationParams = videoPresentation.layoutParams as FrameLayout.LayoutParams
+        val surfaceParams = surfaceView.layoutParams as FrameLayout.LayoutParams
+        if (
+            presentationParams.width == targetWidth &&
+            presentationParams.height == targetHeight &&
+            presentationParams.gravity == Gravity.CENTER &&
+            surfaceParams.width == surfaceWidth &&
+            surfaceParams.height == surfaceHeight &&
+            surfaceParams.gravity == Gravity.CENTER
+        ) {
+            notifyLayoutReadyWhenStable(targetWidth, targetHeight, surfaceWidth, surfaceHeight)
             return
         }
 
-        surfaceView.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
-        logSnapshot("surface layout requested target=${targetWidth}x$targetHeight")
-        notifyLayoutReadyWhenStable(targetWidth, targetHeight)
+        videoPresentation.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
+        surfaceView.layoutParams = FrameLayout.LayoutParams(surfaceWidth, surfaceHeight, Gravity.CENTER)
+        logSnapshot(
+            "surface layout requested display=${targetWidth}x$targetHeight " +
+                "surface=${surfaceWidth}x$surfaceHeight rotation=$videoRotationDegrees flip=$videoFlip",
+        )
+        notifyLayoutReadyWhenStable(targetWidth, targetHeight, surfaceWidth, surfaceHeight)
     }
 
-    private fun notifyLayoutReadyWhenStable(targetWidth: Int, targetHeight: Int) {
+    private fun notifyLayoutReadyWhenStable(
+        targetWidth: Int,
+        targetHeight: Int,
+        surfaceWidth: Int,
+        surfaceHeight: Int,
+    ) {
         rootFrame.post {
             rootFrame.post {
-                notifyLayoutReadyIfNeeded(rootFrame.width, rootFrame.height, targetWidth, targetHeight)
+                notifyLayoutReadyIfNeeded(
+                    rootFrame.width,
+                    rootFrame.height,
+                    targetWidth,
+                    targetHeight,
+                    surfaceWidth,
+                    surfaceHeight,
+                )
             }
         }
     }
@@ -332,14 +374,17 @@ class PlayerScreen(
         containerHeight: Int,
         targetWidth: Int,
         targetHeight: Int,
+        surfaceWidth: Int,
+        surfaceHeight: Int,
     ) {
         val callback = pendingLayoutReady ?: return
         val sourceWidth = videoWidth ?: return
         val sourceHeight = videoHeight ?: return
         if (containerWidth <= 0 || containerHeight <= 0) return
-        if (surfaceView.width != targetWidth || surfaceView.height != targetHeight) return
+        if (videoPresentation.width != targetWidth || videoPresentation.height != targetHeight) return
+        if (surfaceView.width != surfaceWidth || surfaceView.height != surfaceHeight) return
         val surfaceFrame = surfaceView.holder.surfaceFrame
-        if (surfaceFrame.width() != targetWidth || surfaceFrame.height() != targetHeight) return
+        if (surfaceFrame.width() != surfaceWidth || surfaceFrame.height() != surfaceHeight) return
 
         val sourceLandscape = sourceWidth > sourceHeight
         val containerLandscape = containerWidth > containerHeight
@@ -444,7 +489,7 @@ class PlayerScreen(
             "rotationTrace=$transitionId $event elapsedMs=${SystemClock.elapsedRealtime()} " +
                 "displayRotation=${surfaceView.display?.rotation ?: -1} " +
                 "root=${rootFrame.width}x${rootFrame.height} " +
-                "surfaceView=${surfaceView.width}x${surfaceView.height} " +
+                "surfaceView=${surfaceView.width}x${surfaceView.height} scaleX=${surfaceView.scaleX} " +
                 "surfaceFrame=${surfaceFrame.width()}x${surfaceFrame.height()} " +
                 "shutter=${videoShutter.visibility} freeze=${videoFreeze.visibility} " +
                 "attached=${surfaceView.isAttachedToWindow}",

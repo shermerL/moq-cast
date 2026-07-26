@@ -8,6 +8,9 @@ import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 interface VideoPublishSource {
     val label: String
 
+    val presentation: VideoPublishPresentation?
+        get() = null
+
     val layoutTransitions: VideoLayoutTransitionCapability?
         get() = null
 
@@ -19,6 +22,13 @@ interface VideoPublishSource {
 
     fun close()
 }
+
+data class VideoPublishPresentation(
+    val displayWidth: Int,
+    val displayHeight: Int,
+    val rotationDegrees: Int,
+    val flip: Boolean = false,
+)
 
 enum class PublishSourceType(val storageValue: String) {
     Camera("camera"),

@@ -1,7 +1,7 @@
 package com.example.moqandroid.media
 
 import java.io.ByteArrayOutputStream
-import uniffi.moq.MoqFrame
+import uniffi.moq.MoqMediaFrame
 
 data class AvcConfig(
     val lengthSize: Int,
@@ -44,7 +44,7 @@ fun ByteArray.parseAvcConfig(): AvcConfig? {
     return AvcConfig(lengthSize, spsOut.toByteArray(), ppsOut.toByteArray())
 }
 
-fun MoqFrame.payloadForDecoder(avcConfig: AvcConfig?): ByteArray {
+fun MoqMediaFrame.payloadForDecoder(avcConfig: AvcConfig?): ByteArray {
     val data = payload
     if (avcConfig == null || data.hasStartCode()) return data
 

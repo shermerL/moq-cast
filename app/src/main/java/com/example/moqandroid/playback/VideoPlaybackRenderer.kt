@@ -30,6 +30,9 @@ class VideoPlaybackRenderer(
         var initialFrameTransitionId: Int? = null
         val pendingRenderedFrame = AtomicReference<PendingRenderedFrame?>(null)
 
+        transitionId += 1
+        waitForInitialLayout(activeVideoInfo, transitionId)
+
         while (true) {
             val decoderTransitionId = transitionId
             val codec = MediaCodec.createDecoderByType(activeVideo.mime)
@@ -72,6 +75,7 @@ class VideoPlaybackRenderer(
                         avcConfig = activeVideo.avcConfig,
                         adaptiveMaxDimension = adaptiveMaxDimension,
                         lowLatency = lowLatencyPlayback,
+                        rotationDegrees = activeVideoInfo.rotationDegrees,
                     ),
                     surface,
                     null,
@@ -204,6 +208,31 @@ class VideoPlaybackRenderer(
             "rotationTrace=$transitionId layout wait completed ready=$layoutCompleted",
         )
         return true
+    }
+
+    private suspend fun waitForInitialLayout(videoInfo: PlayableVideoInfo, transitionId: Int) {
+        val layoutReady = CompletableDeferred<Unit>()
+        Log.i(
+            "MoqAndroid",
+            "rotationTrace=$transitionId waiting for initial presentation " +
+                "display=${videoInfo.displayWidth ?: "unknown"}x${videoInfo.displayHeight ?: "unknown"} " +
+                "rotation=${videoInfo.rotationDegrees} flip=${videoInfo.flip}",
+        )
+        status(
+            PlayerState.VideoSizeChanged(
+                videoInfo = videoInfo,
+                transitionId = transitionId,
+                onLayoutReady = { layoutReady.complete(Unit) },
+            ),
+        )
+        val layoutCompleted = withTimeoutOrNull(PLAYBACK_ORIENTATION_LAYOUT_TIMEOUT_MS) {
+            layoutReady.await()
+            true
+        } ?: false
+        Log.i(
+            "MoqAndroid",
+            "rotationTrace=$transitionId initial presentation ready=$layoutCompleted",
+        )
     }
 
     private fun PlayableVideoInfo.isLandscape(): Boolean? {

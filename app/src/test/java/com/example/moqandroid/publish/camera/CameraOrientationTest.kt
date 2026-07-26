@@ -10,10 +10,13 @@ class CameraOrientationTest {
     fun encoderUsesCameraSurfaceDimensionsWithoutApplicationRotation() {
         val config = CameraPublishConfig(
             cameraId = "0",
+            lensFacing = CameraLensFacing.Back,
             width = 1280,
             height = 720,
             frameRate = 30,
             sensorOrientation = 90,
+            displayRotationDegrees = 0,
+            presentationRotationDegrees = 90,
         )
         val encoder = config.encoderConfig(
             encoderPolicy = VideoEncoderPolicy.Default,
@@ -22,5 +25,36 @@ class CameraOrientationTest {
 
         assertEquals(1280, encoder.width)
         assertEquals(720, encoder.height)
+    }
+
+    @Test
+    fun rearCameraPortraitPresentationRotatesClockwiseAndSwapsDisplayDimensions() {
+        val config = CameraPublishConfig(
+            cameraId = "0",
+            lensFacing = CameraLensFacing.Back,
+            width = 1280,
+            height = 720,
+            frameRate = 30,
+            sensorOrientation = 90,
+            displayRotationDegrees = 0,
+            presentationRotationDegrees = cameraPresentationRotation(
+                sensorOrientationDegrees = 90,
+                deviceOrientationDegrees = 0,
+                frontFacing = false,
+            ),
+        )
+
+        val presentation = config.presentation()
+
+        assertEquals(720, presentation.displayWidth)
+        assertEquals(1280, presentation.displayHeight)
+        assertEquals(90, presentation.rotationDegrees)
+        assertEquals(false, presentation.flip)
+    }
+
+    @Test
+    fun relativeRotationAccountsForLensFacing() {
+        assertEquals(180, cameraPresentationRotation(90, 90, frontFacing = false))
+        assertEquals(180, cameraPresentationRotation(270, 90, frontFacing = true))
     }
 }

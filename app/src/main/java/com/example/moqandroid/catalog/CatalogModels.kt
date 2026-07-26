@@ -6,6 +6,7 @@ import com.example.moqandroid.media.AvcConfig
 import com.example.moqandroid.media.codec.CodecSupport
 import com.example.moqandroid.media.parseAvcConfig
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 import uniffi.moq.MoqAudio
 import uniffi.moq.MoqAudioDecoderOutput
 import uniffi.moq.MoqAudioFormat
@@ -42,6 +43,8 @@ data class PlayableVideoInfo(
     val audioDescription: String?,
     val displayWidth: Int?,
     val displayHeight: Int?,
+    val rotationDegrees: Int = 0,
+    val flip: Boolean = false,
 ) {
     fun describe(): String {
         val audio = audioDescription?.let { "\naudio=$it" } ?: "\naudio=none"
@@ -50,21 +53,38 @@ data class PlayableVideoInfo(
         } else {
             "\ndisplay=unknown"
         }
-        return "track=$trackName codec=$codec mime=$mime preferred=${preference.label}$audio$display"
+        val presentation = if (rotationDegrees != 0 || flip) {
+            "\nrotation=$rotationDegrees flip=$flip"
+        } else {
+            ""
+        }
+        return "track=$trackName codec=$codec mime=$mime preferred=${preference.label}$audio$display$presentation"
     }
 }
 
 fun MoqCatalog.displayWidthFor(video: MoqVideo): Int? {
-    return display?.width?.toInt()
-        ?: video.coded?.width?.toInt()
-        ?: video.displayRatio?.width?.toInt()
+    display?.width?.toInt()?.let { return it }
+    val width = video.coded?.width?.toInt() ?: video.displayAspect?.width?.toInt()
+    val height = video.coded?.height?.toInt() ?: video.displayAspect?.height?.toInt()
+    return if (presentationRotationDegrees().swapsAxes()) height else width
 }
 
 fun MoqCatalog.displayHeightFor(video: MoqVideo): Int? {
-    return display?.height?.toInt()
-        ?: video.coded?.height?.toInt()
-        ?: video.displayRatio?.height?.toInt()
+    display?.height?.toInt()?.let { return it }
+    val width = video.coded?.width?.toInt() ?: video.displayAspect?.width?.toInt()
+    val height = video.coded?.height?.toInt() ?: video.displayAspect?.height?.toInt()
+    return if (presentationRotationDegrees().swapsAxes()) width else height
 }
+
+fun MoqCatalog.presentationRotationDegrees(): Int = normalizeVideoRotation(rotation)
+
+internal fun normalizeVideoRotation(rotation: Double?): Int {
+    if (rotation == null || !rotation.isFinite()) return 0
+    val normalized = ((rotation % 360.0) + 360.0) % 360.0
+    return ((normalized / 90.0).roundToInt() % 4) * 90
+}
+
+private fun Int.swapsAxes(): Boolean = this == 90 || this == 270
 
 data class PlayableAudioTrack(
     val name: String,
@@ -130,7 +150,7 @@ fun MoqCatalog.describe(broadcastName: String): String {
             val playable = video.toPlayableTrack(name) != null
             appendLine(
                 "  [$index] name=$name codec=${video.codec} mime=$mime playable=$playable " +
-                    "coded=${video.coded.describe()} displayRatio=${video.displayRatio.describe()} " +
+                    "coded=${video.coded.describe()} displayAspect=${video.displayAspect.describe()} " +
                     "framerate=${video.framerate ?: "none"} bitrate=${video.bitrate ?: "none"} container=${video.container}",
             )
         }
@@ -146,6 +166,7 @@ fun MoqVideo.mediaFormat(
     avcConfig: AvcConfig?,
     adaptiveMaxDimension: Int? = null,
     lowLatency: Boolean = false,
+    rotationDegrees: Int = 0,
 ): MediaFormat {
     val width = coded?.width?.toInt() ?: 1280
     val height = coded?.height?.toInt() ?: 720
@@ -164,6 +185,12 @@ fun MoqVideo.mediaFormat(
         }
         if (lowLatency && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+        }
+        if (rotationDegrees != 0) {
+            require(rotationDegrees == 90 || rotationDegrees == 180 || rotationDegrees == 270) {
+                "rotation must be 0, 90, 180, or 270 degrees"
+            }
+            setInteger(MediaFormat.KEY_ROTATION, rotationDegrees)
         }
     }
 }

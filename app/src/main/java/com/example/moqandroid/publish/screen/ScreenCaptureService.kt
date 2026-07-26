@@ -23,6 +23,7 @@ import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFacade
 import com.example.moqandroid.publish.audio.AudioPublishConfig
 import com.example.moqandroid.publish.audio.MicrophoneAudioCapture
+import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
 import com.example.moqandroid.publish.camera.CameraPublishSource
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
@@ -180,7 +181,7 @@ class ScreenCaptureService : Service() {
     }
 
     private suspend fun publishCamera(intent: Intent, relayUrl: String, broadcastName: String) {
-        val cameraConfig = CameraPublishCapabilityResolver.resolve(this)
+        val cameraConfig = CameraPublishCapabilityResolver.resolve(this, intent.cameraLensFacing())
         val videoConfig = cameraConfig.encoderConfig(
             encoderPolicy = intent.encoderPolicy(),
             h264ProfilePreference = intent.h264ProfilePreference(),
@@ -327,6 +328,7 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_DENSITY_DPI = "density_dpi"
         private const val EXTRA_SYSTEM_AUDIO = "system_audio"
         private const val EXTRA_MICROPHONE = "microphone"
+        private const val EXTRA_CAMERA_LENS_FACING = "camera_lens_facing"
         private const val EXTRA_ENCODER_POLICY = "encoder_policy"
         private const val EXTRA_H264_PROFILE = "h264_profile"
         private const val EXTRA_SOURCE_TYPE = "source_type"
@@ -368,6 +370,7 @@ class ScreenCaptureService : Service() {
             encoderPolicy: VideoEncoderPolicy,
             h264ProfilePreference: H264ProfilePreference,
             includeMicrophone: Boolean,
+            lensFacing: CameraLensFacing,
         ) {
             activeSourceType = PublishSourceType.Camera
             val intent = Intent(context, ScreenCaptureService::class.java)
@@ -377,6 +380,7 @@ class ScreenCaptureService : Service() {
                 .putExtra(EXTRA_ENCODER_POLICY, encoderPolicy.storageValue)
                 .putExtra(EXTRA_H264_PROFILE, h264ProfilePreference.storageValue)
                 .putExtra(EXTRA_MICROPHONE, includeMicrophone)
+                .putExtra(EXTRA_CAMERA_LENS_FACING, lensFacing.storageValue)
                 .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Camera.storageValue)
             startService(context, intent)
         }
@@ -430,6 +434,10 @@ class ScreenCaptureService : Service() {
 
     private fun Intent.h264ProfilePreference(): H264ProfilePreference {
         return H264ProfilePreference.fromStorageValue(getStringExtra(EXTRA_H264_PROFILE))
+    }
+
+    private fun Intent.cameraLensFacing(): CameraLensFacing {
+        return CameraLensFacing.fromStorageValue(getStringExtra(EXTRA_CAMERA_LENS_FACING))
     }
 
     private fun Intent?.publishSourceType(): PublishSourceType {

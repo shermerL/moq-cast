@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import uniffi.moq.MoqMediaStreamProducer
+import uniffi.moq.MoqFrame
 import uniffi.moq.MoqTrackProducer
 import kotlin.coroutines.coroutineContext
 
@@ -303,7 +304,7 @@ class SurfaceVideoEncoder(
 
     private fun publishLayoutEvent(event: VideoLayoutEvent) {
         val producer = videoLayout ?: return
-        runCatching { producer.writeFrame(event.encode()) }
+        runCatching { producer.writeFrame(MoqFrame(payload = event.encode())) }
             .onSuccess {
                 Log.i(
                     LOG_TAG,

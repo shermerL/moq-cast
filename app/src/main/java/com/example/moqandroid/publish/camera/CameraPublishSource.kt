@@ -27,6 +27,7 @@ class CameraPublishSource(
     private val cameraConfig: CameraPublishConfig,
 ) : VideoPublishSource {
     override val label: String = "camera"
+    override val presentation = cameraConfig.presentation()
 
     private val cameraManager = context.getSystemService(CameraManager::class.java)
     private val cameraThread = HandlerThread("MoqCameraCapture").apply { start() }
@@ -65,9 +66,11 @@ class CameraPublishSource(
 
         Log.i(
             LOG_TAG,
-            "opening rear camera id=${cameraConfig.cameraId} " +
+            "opening ${cameraConfig.lensFacing.statusLabel} camera id=${cameraConfig.cameraId} " +
                 "output=${cameraConfig.width}x${cameraConfig.height} " +
-                "fps=${cameraConfig.frameRate} sensorOrientation=${cameraConfig.sensorOrientation}",
+                "fps=${cameraConfig.frameRate} sensorOrientation=${cameraConfig.sensorOrientation} " +
+                "displayRotation=${cameraConfig.displayRotationDegrees} " +
+                "presentationRotation=${cameraConfig.presentationRotationDegrees}",
         )
 
         try {
@@ -95,7 +98,9 @@ class CameraPublishSource(
                         camera.close()
                         reportCameraFailure(
                             generation,
-                            IllegalStateException("Rear camera disconnected."),
+                            IllegalStateException(
+                                "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera disconnected.",
+                            ),
                             ::complete,
                         )
                     }
@@ -104,7 +109,9 @@ class CameraPublishSource(
                         camera.close()
                         reportCameraFailure(
                             generation,
-                            IllegalStateException("Rear camera failed with error code $error."),
+                            IllegalStateException(
+                                "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera failed with error code $error.",
+                            ),
                             ::complete,
                         )
                     }
@@ -117,7 +124,7 @@ class CameraPublishSource(
 
         if (!ready.await(CAMERA_START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             detachEncoderSurface()
-            throw TimeoutException("Timed out while starting the rear camera.")
+            throw TimeoutException("Timed out while starting the ${cameraConfig.lensFacing.statusLabel} camera.")
         }
         startupFailure.get()?.let {
             detachEncoderSurface()
@@ -195,7 +202,7 @@ class CameraPublishSource(
                     }.onSuccess {
                         Log.i(
                             LOG_TAG,
-                            "rear camera capture started id=${cameraConfig.cameraId} " +
+                            "${cameraConfig.lensFacing.statusLabel} camera capture started id=${cameraConfig.cameraId} " +
                                 "output=${cameraConfig.width}x${cameraConfig.height}",
                         )
                         complete(null)
@@ -207,7 +214,11 @@ class CameraPublishSource(
 
                 override fun onConfigureFailed(session: CameraCaptureSession) {
                     session.close()
-                    complete(IllegalStateException("Rear camera capture session configuration failed."))
+                    complete(
+                        IllegalStateException(
+                            "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera capture session configuration failed.",
+                        ),
+                    )
                 }
             },
             cameraHandler,

@@ -11,7 +11,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import uniffi.moq.MoqBroadcastProducer
 import uniffi.moq.MoqClient
+import uniffi.moq.MoqDimensions
+import uniffi.moq.MoqInit
+import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
+import uniffi.moq.MoqVideoPresentation
 
 class MoqPublishSession(
     private val relayUrl: String,
@@ -26,68 +30,17 @@ class MoqPublishSession(
         lifecycle.update(PublisherState.Preparing)
 
         try {
-            MoqBroadcastProducer().use { broadcast ->
-                Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
-                val media = broadcast.publishMediaStream("avc3")
-                val videoLayout = source.layoutTransitions?.let {
-                    broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME).also {
-                        broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
-                    }
-                }
-                val audio = audioSource?.config?.let { audioConfig ->
-                    Log.i(
-                        LOG_TAG,
-                        "publishing audio track=0 codec=opus encoder=moq-native input=s16 " +
-                            "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
-                            "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
-                    )
-                    broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
-                }
-                MoqOriginProducer().use { origin ->
-                    MoqClient().use { client ->
-                        client.setPublish(origin)
-                        lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
-                        client.connect(relayUrl).use { session ->
-                            try {
-                                origin.publish(broadcastName, broadcast)
-                                coroutineScope {
-                                    val audioJob = audio?.let { producer ->
-                                        launch {
-                                            runCatching {
-                                                audioSource.capture(producer)
-                                            }.onFailure { error ->
-                                                if (error !is CancellationException) {
-                                                    Log.w(LOG_TAG, "audio capture failed", error)
-                                                    lifecycle.emit(
-                                                        PublisherEvent.TrackError(
-                                                            name = AUDIO_TRACK_NAME,
-                                                            reason = error.message ?: error::class.java.name,
-                                                        ),
-                                                    )
-                                                }
-                                            }.also {
-                                                runCatching { producer.finish() }
-                                            }
-                                        }
-                                    }
-
-                                    try {
-                                        SurfaceVideoEncoder(
-                                            source = source,
-                                            media = media,
-                                            videoLayout = videoLayout,
-                                            relayUrl = relayUrl,
-                                            lifecycle = lifecycle,
-                                        ).run(config.video, broadcastName, audioSource?.config)
-                                    } finally {
-                                        audioJob?.cancel()
-                                    }
-                                }
-                            } finally {
-                                videoLayout?.let { runCatching { it.finish() } }
-                                runCatching { broadcast.finish() }
-                                session.shutdown()
+            MoqOriginProducer(MoqOriginOptions()).use { origin ->
+                MoqClient().use { client ->
+                    client.setPublish(origin)
+                    lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
+                    client.connect(relayUrl).use { session ->
+                        try {
+                            origin.createBroadcast(broadcastName).use { broadcast ->
+                                publishBroadcast(broadcast, source, broadcastName, config, audioSource)
                             }
+                        } finally {
+                            session.shutdown()
                         }
                     }
                 }
@@ -97,6 +50,118 @@ class MoqPublishSession(
         }
 
         lifecycle.update(PublisherState.Stopped)
+    }
+
+    private suspend fun publishBroadcast(
+        broadcast: MoqBroadcastProducer,
+        source: VideoPublishSource,
+        broadcastName: String,
+        config: PublishSessionConfig,
+        audioSource: AudioPublishSource?,
+    ) {
+        val media = broadcast.publishMediaStream(
+            MoqInit(format = "avc3", data = byteArrayOf(), video = null),
+        )
+        source.presentation?.let { presentation ->
+            val display = MoqDimensions(
+                width = presentation.displayWidth.toUInt(),
+                height = presentation.displayHeight.toUInt(),
+            )
+            val videoPresentation = MoqVideoPresentation(
+                display = display,
+                rotation = presentation.rotationDegrees.toDouble(),
+                flip = presentation.flip,
+            )
+
+            // Manual omission checks: comment out the default declaration above and enable one block at a time.
+            // Test 1: omit video.display from the catalog.
+
+//            val videoPresentation = MoqVideoPresentation(
+//                display = null,
+//                rotation = presentation.rotationDegrees.toDouble(),
+//                flip = presentation.flip,
+//            )
+
+
+            // Test 2: omit video.rotation from the catalog.
+
+//            val videoPresentation = MoqVideoPresentation(
+//                display = display,
+//                rotation = null,
+//                flip = presentation.flip,
+//            )
+
+
+            // Test 3: omit video.flip from the catalog.
+
+//            val videoPresentation = MoqVideoPresentation(
+//                display = display,
+//                rotation = presentation.rotationDegrees.toDouble(),
+//                flip = null,
+//            )
+
+            broadcast.setVideoPresentation(videoPresentation)
+            Log.i(
+                LOG_TAG,
+                "publishing video format=avc3 " +
+                    "display=${presentation.displayWidth}x${presentation.displayHeight} " +
+                    "rotation=${presentation.rotationDegrees} flip=${presentation.flip}",
+            )
+        } ?: Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
+
+        val videoLayout = source.layoutTransitions?.let {
+            broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME, null).also {
+                broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
+            }
+        }
+        val audio = audioSource?.config?.let { audioConfig ->
+            Log.i(
+                LOG_TAG,
+                "publishing audio track=0 codec=opus encoder=moq-native input=s16 " +
+                    "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
+                    "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
+            )
+            broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
+        }
+
+        try {
+            coroutineScope {
+                val audioJob = audio?.let { producer ->
+                    launch {
+                        runCatching {
+                            audioSource.capture(producer)
+                        }.onFailure { error ->
+                            if (error !is CancellationException) {
+                                Log.w(LOG_TAG, "audio capture failed", error)
+                                lifecycle.emit(
+                                    PublisherEvent.TrackError(
+                                        name = AUDIO_TRACK_NAME,
+                                        reason = error.message ?: error::class.java.name,
+                                    ),
+                                )
+                            }
+                        }.also {
+                            runCatching { producer.finish() }
+                        }
+                    }
+                }
+
+                try {
+                    SurfaceVideoEncoder(
+                        source = source,
+                        media = media,
+                        videoLayout = videoLayout,
+                        relayUrl = relayUrl,
+                        lifecycle = lifecycle,
+                    ).run(config.video, broadcastName, audioSource?.config)
+                } finally {
+                    audioJob?.cancel()
+                }
+            }
+        } finally {
+            videoLayout?.let { runCatching { it.finish() } }
+            runCatching { broadcast.finish() }
+        }
     }
 
     companion object {

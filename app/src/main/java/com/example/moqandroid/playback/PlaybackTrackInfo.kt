@@ -10,6 +10,7 @@ import com.example.moqandroid.catalog.describe
 import com.example.moqandroid.catalog.displayHeightFor
 import com.example.moqandroid.catalog.displayWidthFor
 import com.example.moqandroid.catalog.preferenceRank
+import com.example.moqandroid.catalog.presentationRotationDegrees
 import com.example.moqandroid.catalog.toPlayableTrack
 import com.example.moqandroid.protocol.videoLayoutTrackName
 import uniffi.moq.MoqCatalog
@@ -65,6 +66,8 @@ class PlaybackTrackSelector(private val logTag: String) {
                 audioDescription = audioTrack?.describe(),
                 displayWidth = catalog.displayWidthFor(selectedVideo.video),
                 displayHeight = catalog.displayHeightFor(selectedVideo.video),
+                rotationDegrees = catalog.presentationRotationDegrees(),
+                flip = catalog.flip ?: false,
             ),
         )
     }
@@ -78,5 +81,7 @@ fun PlaybackTrackInfo.updatedVideoTrack(catalog: MoqCatalog): PlaybackVideoTrack
         mime = playableVideo.mime,
         displayWidth = catalog.displayWidthFor(updatedVideo),
         displayHeight = catalog.displayHeightFor(updatedVideo),
+        rotationDegrees = catalog.presentationRotationDegrees(),
+        flip = catalog.flip ?: false,
     ).let { PlaybackVideoTrackUpdate(playableVideo, it) }
 }

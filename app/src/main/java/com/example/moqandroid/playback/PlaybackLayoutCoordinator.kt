@@ -25,6 +25,8 @@ interface PlaybackLayoutView {
     fun setVideoSize(
         width: Int?,
         height: Int?,
+        rotationDegrees: Int = 0,
+        flip: Boolean = false,
         transitionId: Int? = null,
         onLayoutReady: (() -> Unit)? = null,
     )
@@ -36,10 +38,14 @@ class PlaybackLayoutCoordinator(
 ) {
     private var confirmedVideoWidth: Int? = null
     private var confirmedVideoHeight: Int? = null
+    private var confirmedRotationDegrees = 0
+    private var confirmedFlip = false
 
     fun reset() {
         confirmedVideoWidth = null
         confirmedVideoHeight = null
+        confirmedRotationDegrees = 0
+        confirmedFlip = false
     }
 
     fun handle(state: PlayerState): Boolean {
@@ -103,7 +109,12 @@ class PlaybackLayoutCoordinator(
         activeView.markVideoLayoutReady(event) {
             if (view() !== activeView) return@markVideoLayoutReady
             applyOrientation(event.width, event.height)
-            activeView.setVideoSize(event.width, event.height)
+            activeView.setVideoSize(
+                event.width,
+                event.height,
+                confirmedRotationDegrees,
+                confirmedFlip,
+            )
         }
     }
 
@@ -113,7 +124,14 @@ class PlaybackLayoutCoordinator(
         val height = state.videoInfo.displayHeight
         confirmVideoSize(state.videoInfo)
         val updateVideoLayout: () -> Unit = {
-            applyLayout(width, height, state.transitionId, state.onLayoutReady)
+            applyLayout(
+                width,
+                height,
+                state.videoInfo.rotationDegrees,
+                state.videoInfo.flip,
+                state.transitionId,
+                state.onLayoutReady,
+            )
         }
         if (state.coverVideo) {
             activeView?.coverVideo(state.transitionId, updateVideoLayout) ?: updateVideoLayout()
@@ -130,18 +148,29 @@ class PlaybackLayoutCoordinator(
     private fun confirmVideoSize(videoInfo: PlayableVideoInfo) {
         confirmedVideoWidth = videoInfo.displayWidth
         confirmedVideoHeight = videoInfo.displayHeight
+        confirmedRotationDegrees = videoInfo.rotationDegrees
+        confirmedFlip = videoInfo.flip
     }
 
     private fun applyConfirmedLayout(
         transitionId: Int? = null,
         onLayoutReady: (() -> Unit)? = null,
     ) {
-        applyLayout(confirmedVideoWidth, confirmedVideoHeight, transitionId, onLayoutReady)
+        applyLayout(
+            confirmedVideoWidth,
+            confirmedVideoHeight,
+            confirmedRotationDegrees,
+            confirmedFlip,
+            transitionId,
+            onLayoutReady,
+        )
     }
 
     private fun applyLayout(
         width: Int?,
         height: Int?,
+        rotationDegrees: Int = confirmedRotationDegrees,
+        flip: Boolean = confirmedFlip,
         transitionId: Int? = null,
         onLayoutReady: (() -> Unit)? = null,
     ) {
@@ -149,6 +178,8 @@ class PlaybackLayoutCoordinator(
         view()?.setVideoSize(
             width = width,
             height = height,
+            rotationDegrees = rotationDegrees,
+            flip = flip,
             transitionId = transitionId,
             onLayoutReady = onLayoutReady,
         )

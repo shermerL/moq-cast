@@ -26,7 +26,7 @@
     <string name="publish_source_camera">Camera</string>
     <string name="publish_source_file">File</string>
     <string name="publish_source_screen">Screen</string>
-    <string name="publish_source_camera_note">Rear camera source is active.</string>
+    <string name="publish_source_camera_note">Camera source is active.</string>
     <string name="publish_source_file_note">File publishing is not available yet.</string>
     <string name="publish_source_screen_note">Screen capture source is active.</string>
     <string name="source_state_next">next</string>
@@ -34,8 +34,10 @@
     <string name="coming_soon">Coming soon</string>
     <string name="screen_options">Screen options</string>
     <string name="camera_options">Camera options</string>
-    <string name="camera_options_note">Rear camera, about 720p at 30 fps.</string>
+    <string name="camera_options_note">Select a lens. About 720p at 30 fps.</string>
     <string name="camera_default">Rear</string>
+    <string name="camera_rear">Rear</string>
+    <string name="camera_front">Front</string>
     <string name="microphone_label">Microphone</string>
     <string name="microphone_note">Default stays off. Uses the selected camera with live audio.</string>
     <string name="system_audio_label">System audio</string>

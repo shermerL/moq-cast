@@ -60,10 +60,10 @@ class PlaybackPipeline(
         var latestGeneration = 0L
         try {
             while (true) {
-                val payload = consumer.readFrame() ?: break
-                val event = VideoLayoutEvent.decode(payload)
+                val frame = consumer.readFrame() ?: break
+                val event = VideoLayoutEvent.decode(frame.payload)
                 if (event == null) {
-                    Log.w(logTag, "ignoring invalid video layout control event bytes=${payload.size}")
+                    Log.w(logTag, "ignoring invalid video layout control event bytes=${frame.payload.size}")
                     continue
                 }
                 if (event.generation < latestGeneration) {
@@ -109,7 +109,9 @@ class PlaybackPipeline(
                 val nextVideoInfo = nextVideoTrack.videoInfo
                 if (
                     activeVideoInfo.displayWidth == nextVideoInfo.displayWidth &&
-                    activeVideoInfo.displayHeight == nextVideoInfo.displayHeight
+                    activeVideoInfo.displayHeight == nextVideoInfo.displayHeight &&
+                    activeVideoInfo.rotationDegrees == nextVideoInfo.rotationDegrees &&
+                    activeVideoInfo.flip == nextVideoInfo.flip
                 ) {
                     continue
                 }
@@ -118,6 +120,7 @@ class PlaybackPipeline(
                     logTag,
                     "catalog video update track=${nextVideoInfo.trackName} " +
                         "display=${nextVideoInfo.displayWidth ?: "unknown"}x${nextVideoInfo.displayHeight ?: "unknown"} " +
+                        "rotation=${nextVideoInfo.rotationDegrees} flip=${nextVideoInfo.flip} " +
                         "codec=${nextVideoTrack.video.video.codec} " +
                         "descriptionBytes=${nextVideoTrack.video.video.description?.size ?: 0} " +
                         "descriptionHash=${nextVideoTrack.video.video.description?.contentHashCode() ?: 0} " +

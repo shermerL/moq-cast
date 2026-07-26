@@ -21,7 +21,21 @@ class PlaybackLayoutCoordinatorTest {
 
         assertFalse(consumed)
         assertEquals(listOf(720 to 1280), orientations)
-        assertEquals(listOf(VideoSize(720, 1280, null)), view.videoSizes)
+        assertEquals(listOf(VideoSize(720, 1280, 0, false, null)), view.videoSizes)
+    }
+
+    @Test
+    fun playingPropagatesCatalogPresentation() {
+        val view = FakePlaybackLayoutView()
+        val coordinator = PlaybackLayoutCoordinator({ view }) { _, _ -> }
+
+        coordinator.handle(
+            PlayerState.Playing(
+                videoInfo(720, 1280).copy(rotationDegrees = 90, flip = true),
+            ),
+        )
+
+        assertEquals(listOf(VideoSize(720, 1280, 90, true, null)), view.videoSizes)
     }
 
     @Test
@@ -38,7 +52,10 @@ class PlaybackLayoutCoordinatorTest {
 
         assertEquals(listOf(1280 to 720, 720 to 1280), orientations)
         assertEquals(
-            listOf(VideoSize(1280, 720, 1), VideoSize(720, 1280, 2)),
+            listOf(
+                VideoSize(1280, 720, 0, false, 1),
+                VideoSize(720, 1280, 0, false, 2),
+            ),
             view.videoSizes,
         )
     }
@@ -81,7 +98,13 @@ class PlaybackLayoutCoordinatorTest {
     }
 }
 
-private data class VideoSize(val width: Int?, val height: Int?, val transitionId: Int?)
+private data class VideoSize(
+    val width: Int?,
+    val height: Int?,
+    val rotationDegrees: Int,
+    val flip: Boolean,
+    val transitionId: Int?,
+)
 
 private class FakePlaybackLayoutView : PlaybackLayoutView {
     val snapshots = mutableListOf<String>()
@@ -122,9 +145,11 @@ private class FakePlaybackLayoutView : PlaybackLayoutView {
     override fun setVideoSize(
         width: Int?,
         height: Int?,
+        rotationDegrees: Int,
+        flip: Boolean,
         transitionId: Int?,
         onLayoutReady: (() -> Unit)?,
     ) {
-        videoSizes += VideoSize(width, height, transitionId)
+        videoSizes += VideoSize(width, height, rotationDegrees, flip, transitionId)
     }
 }

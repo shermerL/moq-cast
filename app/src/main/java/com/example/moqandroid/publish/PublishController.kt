@@ -7,6 +7,7 @@ import android.util.DisplayMetrics
 import com.example.moqandroid.config.RelayConfig
 import com.example.moqandroid.media.codec.CodecSupport
 import com.example.moqandroid.publish.audio.AudioPublishConfig
+import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
@@ -90,13 +91,14 @@ class PublishController(private val context: Context) {
         ScreenCaptureService.prepare()
         return when (input.source) {
             PublishSourceType.Camera -> runCatching {
-                CameraPublishCapabilityResolver.resolve(context)
+                CameraPublishCapabilityResolver.resolve(context, input.cameraLensFacing)
             }.fold(
                 onSuccess = { camera ->
                     PublishPreparation(
                         PublishRequest.StartCamera,
                         broadcastName,
-                        "Starting rear camera ${camera.width}x${camera.height} ...\nbroadcast=$broadcastName",
+                        "Starting ${camera.lensFacing.statusLabel} camera " +
+                            "${camera.width}x${camera.height} ...\nbroadcast=$broadcastName",
                     )
                 },
                 onFailure = { error ->
@@ -141,6 +143,7 @@ class PublishController(private val context: Context) {
             encoderPolicy = request.encoderPolicy,
             h264ProfilePreference = request.h264ProfilePreference,
             includeMicrophone = request.includeMicrophone,
+            lensFacing = request.lensFacing,
         )
     }
 
@@ -192,6 +195,7 @@ data class PublishPreparationInput(
     val broadcastInput: String,
     val includeSystemAudio: Boolean,
     val includeMicrophone: Boolean,
+    val cameraLensFacing: CameraLensFacing,
     val permissions: PublishPermissions,
 )
 
@@ -218,6 +222,7 @@ data class CameraPublishStartRequest(
     val encoderPolicy: VideoEncoderPolicy,
     val h264ProfilePreference: H264ProfilePreference,
     val includeMicrophone: Boolean,
+    val lensFacing: CameraLensFacing,
 )
 
 sealed interface PublishRequest {

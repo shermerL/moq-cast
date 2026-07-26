@@ -5,6 +5,7 @@ import com.example.moqandroid.catalog.CodecPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.moq.MoqClient
+import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
 
 class MoqPlaybackSession(
@@ -23,7 +24,7 @@ class MoqPlaybackSession(
     ) = withContext(Dispatchers.IO) {
         status(PlayerState.Connecting(relayUrl))
 
-        MoqOriginProducer().use { originProducer ->
+        MoqOriginProducer(MoqOriginOptions()).use { originProducer ->
             MoqClient().use { client ->
                 client.setConsume(originProducer)
 
