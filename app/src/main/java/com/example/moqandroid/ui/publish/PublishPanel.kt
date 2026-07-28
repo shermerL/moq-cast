@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.example.moqandroid.R
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.camera.CameraLensFacing
+import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.MoqBrandHeader
 import com.example.moqandroid.ui.components.MoqInfoRow
@@ -70,6 +71,7 @@ fun PublishPanel(
                     includeSystemAudio = state.includeSystemAudio,
                     includeMicrophone = state.includeMicrophone,
                     cameraLensFacing = state.cameraLensFacing,
+                    cameraQualityPreset = state.cameraQualityPreset,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onIncludeMicrophoneChange = actions.onIncludeMicrophoneChange,
                     onStopPublish = actions.onStopPublish,
@@ -82,9 +84,11 @@ fun PublishPanel(
                     includeSystemAudio = state.includeSystemAudio,
                     includeMicrophone = state.includeMicrophone,
                     cameraLensFacing = state.cameraLensFacing,
+                    cameraQualityPreset = state.cameraQualityPreset,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onIncludeMicrophoneChange = actions.onIncludeMicrophoneChange,
                     onCameraLensFacingChange = actions.onCameraLensFacingChange,
+                    onCameraQualityPresetChange = actions.onCameraQualityPresetChange,
                     onPublish = actions.onPublish,
                 )
             }
@@ -100,9 +104,11 @@ private fun ReadyContent(
     includeSystemAudio: Boolean,
     includeMicrophone: Boolean,
     cameraLensFacing: CameraLensFacing,
+    cameraQualityPreset: CameraQualityPreset,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
     onCameraLensFacingChange: (CameraLensFacing) -> Unit,
+    onCameraQualityPresetChange: (CameraQualityPreset) -> Unit,
     onPublish: () -> Unit,
 ) {
     SourcePicker(
@@ -119,6 +125,11 @@ private fun ReadyContent(
             CameraOptionsRow(
                 selected = cameraLensFacing,
                 onSelected = onCameraLensFacingChange,
+            )
+            Spacer(Modifier.height(24.dp))
+            CameraQualityRow(
+                selected = cameraQualityPreset,
+                onSelected = onCameraQualityPresetChange,
             )
             Spacer(Modifier.height(24.dp))
             MicrophoneRow(includeMicrophone, onIncludeMicrophoneChange)
@@ -151,6 +162,7 @@ private fun PublishingContent(
     includeSystemAudio: Boolean,
     includeMicrophone: Boolean,
     cameraLensFacing: CameraLensFacing,
+    cameraQualityPreset: CameraQualityPreset,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
     onStopPublish: () -> Unit,
@@ -179,6 +191,11 @@ private fun PublishingContent(
         PublishSourceType.Camera -> {
             CameraOptionsRow(
                 selected = cameraLensFacing,
+                onSelected = null,
+            )
+            Spacer(Modifier.height(24.dp))
+            CameraQualityRow(
+                selected = cameraQualityPreset,
                 onSelected = null,
             )
             Spacer(Modifier.height(24.dp))
@@ -272,6 +289,28 @@ private fun CameraOptionsRow(
 }
 
 @Composable
+private fun CameraQualityRow(
+    selected: CameraQualityPreset,
+    onSelected: ((CameraQualityPreset) -> Unit)?,
+) {
+    MoqInfoRow(
+        label = stringResource(R.string.camera_quality),
+        note = stringResource(selected.noteRes),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CameraQualityPreset.entries.forEach { preset ->
+                MoqPill(
+                    text = stringResource(preset.labelRes),
+                    selected = selected == preset,
+                    enabled = onSelected != null,
+                    onClick = onSelected?.let { select -> { select(preset) } },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MicrophoneRow(
     includeMicrophone: Boolean,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
@@ -325,6 +364,18 @@ private val CameraLensFacing.labelRes: Int
     @StringRes get() = when (this) {
         CameraLensFacing.Back -> R.string.camera_rear
         CameraLensFacing.Front -> R.string.camera_front
+    }
+
+private val CameraQualityPreset.labelRes: Int
+    @StringRes get() = when (this) {
+        CameraQualityPreset.Auto -> R.string.camera_quality_auto
+        CameraQualityPreset.Quality -> R.string.camera_quality_quality
+    }
+
+private val CameraQualityPreset.noteRes: Int
+    @StringRes get() = when (this) {
+        CameraQualityPreset.Auto -> R.string.camera_quality_auto_note
+        CameraQualityPreset.Quality -> R.string.camera_quality_quality_note
     }
 
 private val PublishSourceType.enabled: Boolean

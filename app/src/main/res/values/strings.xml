@@ -34,10 +34,15 @@
     <string name="coming_soon">Coming soon</string>
     <string name="screen_options">Screen options</string>
     <string name="camera_options">Camera options</string>
-    <string name="camera_options_note">Select a lens. About 720p at 30 fps.</string>
+    <string name="camera_options_note">Select the camera used for the next publish.</string>
     <string name="camera_default">Rear</string>
     <string name="camera_rear">Rear</string>
     <string name="camera_front">Front</string>
+    <string name="camera_quality">Quality preset</string>
+    <string name="camera_quality_auto">Auto</string>
+    <string name="camera_quality_quality">Quality</string>
+    <string name="camera_quality_auto_note">Prefer 720p at 30 fps.</string>
+    <string name="camera_quality_quality_note">Prefer 1080p at 30 fps.</string>
     <string name="microphone_label">Microphone</string>
     <string name="microphone_note">Default stays off. Uses the selected camera with live audio.</string>
     <string name="system_audio_label">System audio</string>

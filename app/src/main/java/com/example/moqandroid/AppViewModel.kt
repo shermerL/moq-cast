@@ -28,6 +28,7 @@ import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFormatter
 import com.example.moqandroid.publish.ScreenPublishStartRequest
 import com.example.moqandroid.publish.camera.CameraLensFacing
+import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.ui.app.PublishPanelMode
@@ -90,6 +91,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var includeMicrophone by mutableStateOf(false)
         private set
     var cameraLensFacing by mutableStateOf(CameraLensFacing.Back)
+        private set
+    var cameraQualityPreset by mutableStateOf(CameraQualityPreset.Auto)
         private set
     var publishSource by mutableStateOf(PublishSourceType.Screen)
         private set
@@ -193,6 +196,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         cameraLensFacing = value
     }
 
+    fun updateCameraQualityPreset(value: CameraQualityPreset) {
+        cameraQualityPreset = value
+    }
+
     fun updatePublishSource(value: PublishSourceType) {
         publishSource = value
     }
@@ -272,6 +279,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 includeSystemAudio = includeSystemAudio,
                 includeMicrophone = includeMicrophone,
                 cameraLensFacing = cameraLensFacing,
+                cameraQualityPreset = cameraQualityPreset,
                 permissions = PublishPermissions(
                     camera = hasCameraPermission,
                     notifications = hasNotificationPermission,
@@ -314,6 +322,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 h264ProfilePreference = configState.h264ProfilePreference,
                 includeMicrophone = includeMicrophone,
                 lensFacing = cameraLensFacing,
+                qualityPreset = cameraQualityPreset,
             ),
         )
     }

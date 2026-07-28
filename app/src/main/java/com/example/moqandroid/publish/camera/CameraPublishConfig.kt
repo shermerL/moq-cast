@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.params.StreamConfigurationMap
 import android.media.MediaCodec
 import android.util.Size
 import android.view.Display
@@ -37,11 +38,42 @@ enum class CameraLensFacing(
     }
 }
 
+enum class CameraQualityPreset(
+    val storageValue: String,
+    val targetWidth: Int,
+    val targetHeight: Int,
+    val targetBitrate: Int,
+    val frameRateCandidates: List<Int>,
+) {
+    Auto(
+        storageValue = "auto",
+        targetWidth = 1280,
+        targetHeight = 720,
+        targetBitrate = 4_000_000,
+        frameRateCandidates = listOf(30, 24),
+    ),
+    Quality(
+        storageValue = "quality",
+        targetWidth = 1920,
+        targetHeight = 1080,
+        targetBitrate = 8_000_000,
+        frameRateCandidates = listOf(30, 24),
+    );
+
+    companion object {
+        fun fromStorageValue(value: String?): CameraQualityPreset {
+            return entries.firstOrNull { it.storageValue == value } ?: Auto
+        }
+    }
+}
+
 data class CameraPublishConfig(
     val cameraId: String,
     val lensFacing: CameraLensFacing,
+    val qualityPreset: CameraQualityPreset,
     val width: Int,
     val height: Int,
+    val bitrate: Int,
     val frameRate: Int,
     val sensorOrientation: Int,
     val displayRotationDegrees: Int,
@@ -54,6 +86,7 @@ data class CameraPublishConfig(
         return VideoPublishConfig(
             width = width,
             height = height,
+            bitrate = bitrate,
             frameRate = frameRate,
             encoderPolicy = encoderPolicy,
             h264ProfilePreference = h264ProfilePreference,
@@ -74,6 +107,7 @@ object CameraPublishCapabilityResolver {
     fun resolve(
         context: Context,
         lensFacing: CameraLensFacing = CameraLensFacing.Back,
+        qualityPreset: CameraQualityPreset = CameraQualityPreset.Auto,
     ): CameraPublishConfig {
         val manager = context.getSystemService(CameraManager::class.java)
         val cameraId = manager.cameraIdList.firstOrNull { id ->
@@ -87,8 +121,9 @@ object CameraPublishCapabilityResolver {
             .getOrNull()
             ?.filter { it.width > 0 && it.height > 0 }
             .orEmpty()
-        val size = chooseDefaultSize(outputSizes)
+        val size = chooseSize(outputSizes, qualityPreset)
             ?: error("${lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera does not support MediaCodec surface output.")
+        val frameRate = chooseFrameRate(characteristics, streamMap, size, qualityPreset)
         val sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         val lensFacingValue = characteristics.get(CameraCharacteristics.LENS_FACING)
             ?: CameraCharacteristics.LENS_FACING_BACK
@@ -101,9 +136,11 @@ object CameraPublishCapabilityResolver {
         return CameraPublishConfig(
             cameraId = cameraId,
             lensFacing = lensFacing,
+            qualityPreset = qualityPreset,
             width = size.width,
             height = size.height,
-            frameRate = DEFAULT_FRAME_RATE,
+            bitrate = qualityPreset.targetBitrate,
+            frameRate = frameRate,
             sensorOrientation = sensorOrientation,
             displayRotationDegrees = displayRotationDegrees,
             //for test
@@ -116,22 +153,56 @@ object CameraPublishCapabilityResolver {
         )
     }
 
-    private fun chooseDefaultSize(sizes: List<Size>): Size? {
+    private fun chooseSize(sizes: List<Size>, preset: CameraQualityPreset): Size? {
         return sizes.minWithOrNull(
             compareBy<Size>(
-                { aspectRatioDistance(it) },
-                { abs(it.width.toLong() * it.height - TARGET_AREA) },
+                { aspectRatioDistance(it, preset) },
+                {
+                    abs(
+                        it.width.toLong() * it.height -
+                            preset.targetWidth.toLong() * preset.targetHeight,
+                    )
+                },
             ),
         )
     }
 
-    private fun aspectRatioDistance(size: Size): Long {
-        return abs(size.width.toLong() * TARGET_HEIGHT - size.height.toLong() * TARGET_WIDTH)
+    private fun chooseFrameRate(
+        characteristics: CameraCharacteristics,
+        streamMap: StreamConfigurationMap,
+        size: Size,
+        preset: CameraQualityPreset,
+    ): Int {
+        val ranges = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            .orEmpty()
+        val minFrameDuration = runCatching {
+            streamMap.getOutputMinFrameDuration(MediaCodec::class.java, size)
+        }.getOrDefault(0L)
+        val maximumStreamFrameRate = if (minFrameDuration > 0L) {
+            (NANOS_PER_SECOND / minFrameDuration).toInt()
+        } else {
+            Int.MAX_VALUE
+        }
+
+        return preset.frameRateCandidates.firstOrNull { frameRate ->
+            frameRate <= maximumStreamFrameRate && ranges.any { frameRate in it }
+        } ?: ranges
+            .asSequence()
+            .map { it.upper }
+            .filter { it <= maximumStreamFrameRate }
+            .maxOrNull()
+            ?.coerceAtMost(preset.frameRateCandidates.first())
+            ?: DEFAULT_FRAME_RATE.coerceAtMost(maximumStreamFrameRate)
     }
 
-    private const val TARGET_WIDTH = 1280
-    private const val TARGET_HEIGHT = 720
-    private const val TARGET_AREA = TARGET_WIDTH.toLong() * TARGET_HEIGHT
+    private fun aspectRatioDistance(size: Size, preset: CameraQualityPreset): Long {
+        return abs(
+            size.width.toLong() * preset.targetHeight -
+                size.height.toLong() * preset.targetWidth,
+        )
+    }
+
+    private const val NANOS_PER_SECOND = 1_000_000_000L
     private const val DEFAULT_FRAME_RATE = 30
 }
 

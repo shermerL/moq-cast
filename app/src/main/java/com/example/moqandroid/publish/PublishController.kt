@@ -9,16 +9,17 @@ import com.example.moqandroid.media.codec.CodecSupport
 import com.example.moqandroid.publish.audio.AudioPublishConfig
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
+import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
-import com.example.moqandroid.publish.screen.ScreenCaptureService
+import com.example.moqandroid.publish.service.PublishForegroundService
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
 import com.example.moqandroid.publish.screen.withScreenSize
 import kotlinx.coroutines.flow.StateFlow
 
 class PublishController(private val context: Context) {
-    val status: StateFlow<PublishState> = ScreenCaptureService.status
+    val status: StateFlow<PublishState> = PublishForegroundService.status
 
     fun prepare(input: PublishPreparationInput): PublishPreparation {
         val broadcastName = input.broadcastInput.trim().trim('/')
@@ -52,7 +53,7 @@ class PublishController(private val context: Context) {
             input.includeSystemAudio &&
             !input.permissions.recordAudio
         ) {
-            ScreenCaptureService.prepare()
+            PublishForegroundService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
                 broadcastName,
@@ -60,7 +61,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (input.source == PublishSourceType.Camera && !input.permissions.camera) {
-            ScreenCaptureService.prepare()
+            PublishForegroundService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestCamera,
                 broadcastName,
@@ -72,7 +73,7 @@ class PublishController(private val context: Context) {
             input.includeMicrophone &&
             !input.permissions.recordAudio
         ) {
-            ScreenCaptureService.prepare()
+            PublishForegroundService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
                 broadcastName,
@@ -80,7 +81,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !input.permissions.notifications) {
-            ScreenCaptureService.prepare()
+            PublishForegroundService.prepare()
             return PublishPreparation(
                 PublishRequest.RequestNotifications,
                 broadcastName,
@@ -88,21 +89,26 @@ class PublishController(private val context: Context) {
             )
         }
 
-        ScreenCaptureService.prepare()
+        PublishForegroundService.prepare()
         return when (input.source) {
             PublishSourceType.Camera -> runCatching {
-                CameraPublishCapabilityResolver.resolve(context, input.cameraLensFacing)
+                CameraPublishCapabilityResolver.resolve(
+                    context = context,
+                    lensFacing = input.cameraLensFacing,
+                    qualityPreset = input.cameraQualityPreset,
+                )
             }.fold(
                 onSuccess = { camera ->
                     PublishPreparation(
                         PublishRequest.StartCamera,
                         broadcastName,
                         "Starting ${camera.lensFacing.statusLabel} camera " +
-                            "${camera.width}x${camera.height} ...\nbroadcast=$broadcastName",
+                            "${camera.width}x${camera.height} ${camera.frameRate}fps " +
+                            "preset=${camera.qualityPreset.storageValue} ...\nbroadcast=$broadcastName",
                     )
                 },
                 onFailure = { error ->
-                    ScreenCaptureService.fail(error.message ?: error::class.java.name)
+                    PublishForegroundService.fail(error.message ?: error::class.java.name)
                     PublishPreparation(
                         PublishRequest.None,
                         broadcastName,
@@ -120,7 +126,7 @@ class PublishController(private val context: Context) {
     }
 
     fun startScreen(request: ScreenPublishStartRequest) {
-        ScreenCaptureService.startScreen(
+        PublishForegroundService.startScreen(
             context = context,
             relayUrl = request.relayConfig.relayUrl,
             broadcastName = request.broadcastName,
@@ -136,7 +142,7 @@ class PublishController(private val context: Context) {
     }
 
     fun startCamera(request: CameraPublishStartRequest) {
-        ScreenCaptureService.startCamera(
+        PublishForegroundService.startCamera(
             context = context,
             relayUrl = request.relayConfig.relayUrl,
             broadcastName = request.broadcastName,
@@ -144,15 +150,16 @@ class PublishController(private val context: Context) {
             h264ProfilePreference = request.h264ProfilePreference,
             includeMicrophone = request.includeMicrophone,
             lensFacing = request.lensFacing,
+            qualityPreset = request.qualityPreset,
         )
     }
 
     fun stop() {
-        ScreenCaptureService.stop(context)
+        PublishForegroundService.stop(context)
     }
 
     fun fail(reason: String) {
-        ScreenCaptureService.fail(reason)
+        PublishForegroundService.fail(reason)
     }
 
     private fun screenPublishConfig(
@@ -196,6 +203,7 @@ data class PublishPreparationInput(
     val includeSystemAudio: Boolean,
     val includeMicrophone: Boolean,
     val cameraLensFacing: CameraLensFacing,
+    val cameraQualityPreset: CameraQualityPreset,
     val permissions: PublishPermissions,
 )
 
@@ -223,6 +231,7 @@ data class CameraPublishStartRequest(
     val h264ProfilePreference: H264ProfilePreference,
     val includeMicrophone: Boolean,
     val lensFacing: CameraLensFacing,
+    val qualityPreset: CameraQualityPreset,
 )
 
 sealed interface PublishRequest {

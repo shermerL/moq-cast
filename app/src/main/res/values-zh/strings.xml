@@ -34,10 +34,15 @@
     <string name="coming_soon">即将支持</string>
     <string name="screen_options">屏幕选项</string>
     <string name="camera_options">摄像头选项</string>
-    <string name="camera_options_note">选择前置或后置，约 720p、30 fps。</string>
+    <string name="camera_options_note">选择下一次发布使用的摄像头。</string>
     <string name="camera_default">后置</string>
     <string name="camera_rear">后置</string>
     <string name="camera_front">前置</string>
+    <string name="camera_quality">质量预设</string>
+    <string name="camera_quality_auto">自动</string>
+    <string name="camera_quality_quality">画质</string>
+    <string name="camera_quality_auto_note">优先使用 720p、30 fps。</string>
+    <string name="camera_quality_quality_note">优先使用 1080p、30 fps。</string>
     <string name="microphone_label">麦克风</string>
     <string name="microphone_note">默认关闭。开启后随摄像头发布实时声音。</string>
     <string name="system_audio_label">系统音频</string>

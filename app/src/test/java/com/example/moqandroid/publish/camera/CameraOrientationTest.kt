@@ -11,8 +11,10 @@ class CameraOrientationTest {
         val config = CameraPublishConfig(
             cameraId = "0",
             lensFacing = CameraLensFacing.Back,
+            qualityPreset = CameraQualityPreset.Auto,
             width = 1280,
             height = 720,
+            bitrate = 4_000_000,
             frameRate = 30,
             sensorOrientation = 90,
             displayRotationDegrees = 0,
@@ -25,6 +27,8 @@ class CameraOrientationTest {
 
         assertEquals(1280, encoder.width)
         assertEquals(720, encoder.height)
+        assertEquals(4_000_000, encoder.bitrate)
+        assertEquals(30, encoder.frameRate)
     }
 
     @Test
@@ -32,8 +36,10 @@ class CameraOrientationTest {
         val config = CameraPublishConfig(
             cameraId = "0",
             lensFacing = CameraLensFacing.Back,
+            qualityPreset = CameraQualityPreset.Auto,
             width = 1280,
             height = 720,
+            bitrate = 4_000_000,
             frameRate = 30,
             sensorOrientation = 90,
             displayRotationDegrees = 0,

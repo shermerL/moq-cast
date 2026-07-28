@@ -1,4 +1,4 @@
-package com.example.moqandroid.publish.screen
+package com.example.moqandroid.publish.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -26,8 +26,14 @@ import com.example.moqandroid.publish.audio.MicrophoneAudioCapture
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
 import com.example.moqandroid.publish.camera.CameraPublishSource
+import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
+import com.example.moqandroid.publish.screen.ScreenPublishConfig
+import com.example.moqandroid.publish.screen.ScreenPublishSource
+import com.example.moqandroid.publish.screen.ScreenVideoConfig
+import com.example.moqandroid.publish.screen.SystemAudioCapture
+import com.example.moqandroid.publish.screen.encoderConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +44,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 
-class ScreenCaptureService : Service() {
+class PublishForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var publishJob: Job? = null
     private var publishGeneration = 0
@@ -181,7 +187,11 @@ class ScreenCaptureService : Service() {
     }
 
     private suspend fun publishCamera(intent: Intent, relayUrl: String, broadcastName: String) {
-        val cameraConfig = CameraPublishCapabilityResolver.resolve(this, intent.cameraLensFacing())
+        val cameraConfig = CameraPublishCapabilityResolver.resolve(
+            context = this,
+            lensFacing = intent.cameraLensFacing(),
+            qualityPreset = intent.cameraQualityPreset(),
+        )
         val videoConfig = cameraConfig.encoderConfig(
             encoderPolicy = intent.encoderPolicy(),
             h264ProfilePreference = intent.h264ProfilePreference(),
@@ -287,7 +297,7 @@ class ScreenCaptureService : Service() {
         broadcastName: String,
         sourceType: PublishSourceType,
     ): Notification.Action {
-        val stopIntent = Intent(this, ScreenCaptureService::class.java)
+        val stopIntent = Intent(this, PublishForegroundService::class.java)
             .setAction(ACTION_STOP)
             .putExtra(EXTRA_RELAY_URL, relayUrl)
             .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
@@ -329,6 +339,7 @@ class ScreenCaptureService : Service() {
         private const val EXTRA_SYSTEM_AUDIO = "system_audio"
         private const val EXTRA_MICROPHONE = "microphone"
         private const val EXTRA_CAMERA_LENS_FACING = "camera_lens_facing"
+        private const val EXTRA_CAMERA_QUALITY_PRESET = "camera_quality_preset"
         private const val EXTRA_ENCODER_POLICY = "encoder_policy"
         private const val EXTRA_H264_PROFILE = "h264_profile"
         private const val EXTRA_SOURCE_TYPE = "source_type"
@@ -347,7 +358,7 @@ class ScreenCaptureService : Service() {
             config: ScreenPublishConfig,
         ) {
             activeSourceType = PublishSourceType.Screen
-            val intent = Intent(context, ScreenCaptureService::class.java)
+            val intent = Intent(context, PublishForegroundService::class.java)
                 .setAction(ACTION_START_PUBLISH)
                 .putExtra(EXTRA_RELAY_URL, relayUrl)
                 .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
@@ -371,9 +382,10 @@ class ScreenCaptureService : Service() {
             h264ProfilePreference: H264ProfilePreference,
             includeMicrophone: Boolean,
             lensFacing: CameraLensFacing,
+            qualityPreset: CameraQualityPreset,
         ) {
             activeSourceType = PublishSourceType.Camera
-            val intent = Intent(context, ScreenCaptureService::class.java)
+            val intent = Intent(context, PublishForegroundService::class.java)
                 .setAction(ACTION_START_PUBLISH)
                 .putExtra(EXTRA_RELAY_URL, relayUrl)
                 .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
@@ -381,6 +393,7 @@ class ScreenCaptureService : Service() {
                 .putExtra(EXTRA_H264_PROFILE, h264ProfilePreference.storageValue)
                 .putExtra(EXTRA_MICROPHONE, includeMicrophone)
                 .putExtra(EXTRA_CAMERA_LENS_FACING, lensFacing.storageValue)
+                .putExtra(EXTRA_CAMERA_QUALITY_PRESET, qualityPreset.storageValue)
                 .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Camera.storageValue)
             startService(context, intent)
         }
@@ -398,7 +411,7 @@ class ScreenCaptureService : Service() {
                 statusFacade.markStopped()
                 return
             }
-            val intent = Intent(context, ScreenCaptureService::class.java)
+            val intent = Intent(context, PublishForegroundService::class.java)
                 .setAction(ACTION_STOP)
                 .putExtra(EXTRA_SOURCE_TYPE, activeSourceType.storageValue)
             startService(context, intent)
@@ -438,6 +451,10 @@ class ScreenCaptureService : Service() {
 
     private fun Intent.cameraLensFacing(): CameraLensFacing {
         return CameraLensFacing.fromStorageValue(getStringExtra(EXTRA_CAMERA_LENS_FACING))
+    }
+
+    private fun Intent.cameraQualityPreset(): CameraQualityPreset {
+        return CameraQualityPreset.fromStorageValue(getStringExtra(EXTRA_CAMERA_QUALITY_PRESET))
     }
 
     private fun Intent?.publishSourceType(): PublishSourceType {

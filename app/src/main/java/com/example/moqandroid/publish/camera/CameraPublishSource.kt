@@ -66,7 +66,8 @@ class CameraPublishSource(
 
         Log.i(
             LOG_TAG,
-            "opening ${cameraConfig.lensFacing.statusLabel} camera id=${cameraConfig.cameraId} " +
+                "opening ${cameraConfig.lensFacing.statusLabel} camera id=${cameraConfig.cameraId} " +
+                "preset=${cameraConfig.qualityPreset.storageValue} " +
                 "output=${cameraConfig.width}x${cameraConfig.height} " +
                 "fps=${cameraConfig.frameRate} sensorOrientation=${cameraConfig.sensorOrientation} " +
                 "displayRotation=${cameraConfig.displayRotationDegrees} " +
@@ -203,7 +204,9 @@ class CameraPublishSource(
                         Log.i(
                             LOG_TAG,
                             "${cameraConfig.lensFacing.statusLabel} camera capture started id=${cameraConfig.cameraId} " +
-                                "output=${cameraConfig.width}x${cameraConfig.height}",
+                                "preset=${cameraConfig.qualityPreset.storageValue} " +
+                                "output=${cameraConfig.width}x${cameraConfig.height} " +
+                                "fps=${cameraConfig.frameRate}",
                         )
                         complete(null)
                     }.onFailure {
