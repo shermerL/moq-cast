@@ -2,6 +2,7 @@ package com.example.moqandroid
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Surface
@@ -22,6 +23,7 @@ import com.example.moqandroid.publish.CameraPublishStartRequest
 import com.example.moqandroid.publish.PublishController
 import com.example.moqandroid.publish.PublishPermissions
 import com.example.moqandroid.publish.PublishPreparationInput
+import com.example.moqandroid.publish.FilePublishStartRequest
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.PublishState
@@ -31,9 +33,14 @@ import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
+import com.example.moqandroid.publish.file.PublishFileProbe
+import com.example.moqandroid.publish.file.PublishFileState
 import com.example.moqandroid.ui.app.PublishPanelMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logTag = "MoqAndroid"
@@ -46,7 +53,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var appLanguage = initialLanguage
     private var localizedResources = application.withAppLanguage(initialLanguage)
     private val publishController = PublishController(application)
+    private val publishFileProbe = PublishFileProbe(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
+    private var publishFileProbeJob: Job? = null
 
     var relayConfig by mutableStateOf(RelayConfig(initialRelayUrl))
         private set
@@ -95,6 +104,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var cameraQualityPreset by mutableStateOf(CameraQualityPreset.Auto)
         private set
     var publishSource by mutableStateOf(PublishSourceType.Screen)
+        private set
+    var publishFileState by mutableStateOf<PublishFileState>(PublishFileState.NotSelected)
         private set
     var playerBroadcast by mutableStateOf<String?>(null)
         private set
@@ -204,6 +215,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         publishSource = value
     }
 
+    fun selectPublishFile(uri: Uri) {
+        val displayName = uri.lastPathSegment
+        publishFileProbeJob?.cancel()
+        publishFileState = PublishFileState.Probing(displayName)
+        publishFileProbeJob = viewModelScope.launch {
+            publishFileState = try {
+                withContext(Dispatchers.IO) { publishFileProbe.probe(uri) }
+                    .let(PublishFileState::Ready)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                PublishFileState.Failed(
+                    displayName = displayName,
+                    reason = error.message ?: error::class.java.simpleName,
+                )
+            }
+        }
+    }
+
     fun showMainUi() {
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         playerBroadcast = null
@@ -280,6 +310,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 includeMicrophone = includeMicrophone,
                 cameraLensFacing = cameraLensFacing,
                 cameraQualityPreset = cameraQualityPreset,
+                publishFile = (publishFileState as? PublishFileState.Ready)?.file,
                 permissions = PublishPermissions(
                     camera = hasCameraPermission,
                     notifications = hasNotificationPermission,
@@ -323,6 +354,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 includeMicrophone = includeMicrophone,
                 lensFacing = cameraLensFacing,
                 qualityPreset = cameraQualityPreset,
+            ),
+        )
+    }
+
+    fun startFilePublish() {
+        val file = (publishFileState as? PublishFileState.Ready)?.file
+        if (file == null) {
+            failPublish("Choose a local video first.")
+            return
+        }
+        publishStatusMessage = text(R.string.publish_status_starting_file)
+        publishController.startFile(
+            FilePublishStartRequest(
+                relayConfig = relayConfig,
+                broadcastName = activeBroadcastName,
+                file = file,
             ),
         )
     }

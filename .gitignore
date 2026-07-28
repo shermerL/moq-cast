@@ -20,6 +20,7 @@ local.properties
 *.aab
 captures/
 *.hprof
+test-media/
 
 # Signing and private configuration
 *.jks

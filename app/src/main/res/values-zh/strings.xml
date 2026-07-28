@@ -27,9 +27,10 @@
     <string name="publish_source_file">文件</string>
     <string name="publish_source_screen">屏幕</string>
     <string name="publish_source_camera_note">正在使用摄像头来源。</string>
-    <string name="publish_source_file_note">文件发布暂未开放。</string>
+    <string name="publish_source_file_note">无重编码发布兼容的 fragmented MP4。</string>
     <string name="publish_source_screen_note">正在使用屏幕采集来源。</string>
     <string name="source_state_next">后续</string>
+    <string name="source_state_select">选择</string>
     <string name="source_state_ready">就绪</string>
     <string name="coming_soon">即将支持</string>
     <string name="screen_options">屏幕选项</string>
@@ -50,6 +51,7 @@
     <string name="include_system_audio">包含系统音频</string>
     <string name="publish_screen">发布屏幕</string>
     <string name="publish_camera">发布摄像头</string>
+    <string name="publish_file">发布文件</string>
     <string name="stop_publish">停止发布</string>
     <string name="subscribe_action">订阅</string>
     <string name="player_preview_label">播放器预览</string>
@@ -82,6 +84,8 @@
     <string name="h264_profile_high">High</string>
     <string name="publish_status_starting">正在启动屏幕发布 ...</string>
     <string name="publish_status_starting_camera">正在启动摄像头发布 ...</string>
+    <string name="publish_status_starting_file">正在启动文件发布 ...</string>
+    <string name="file_publish_notification_title">MoQCast 文件发布</string>
     <string name="publish_status_preparing">正在准备发布 ...</string>
     <string name="publish_status_connecting">正在发布到 %1$s ...\nbroadcast=%2$s</string>
     <string name="publish_status_publishing">正在发布到 %1$s\nbroadcast=%2$s\nvideo=%3$dx%4$d %5$dfps target=%6$dkbps\n音频=%7$s</string>
@@ -110,4 +114,23 @@
     <string name="publish_channel_name">MoQCast 发布</string>
     <string name="screen_publish_channel_name">屏幕发布</string>
     <string name="stop">停止</string>
+    <string name="file_selection">本地视频</string>
+    <string name="file_not_selected">选择文件后探测容器、轨道和编解码格式。</string>
+    <string name="file_probing">正在探测媒体轨道 ...</string>
+    <string name="file_probe_failed">无法探测该文件：%1$s</string>
+    <string name="file_size_unknown">大小未知</string>
+    <string name="file_no_media_tracks">没有视频或音频轨道</string>
+    <string name="choose_file">选择文件</string>
+    <string name="choose_another_file">更换</string>
+    <string name="file_tracks">媒体轨道</string>
+    <string name="file_publish_path">计划发布路径</string>
+    <string name="file_container_fragmented_mp4">fMP4</string>
+    <string name="file_container_mp4">MP4</string>
+    <string name="file_container_other">其他</string>
+    <string name="file_path_direct">直通</string>
+    <string name="file_path_remux">转封装</string>
+    <string name="file_path_unsupported">不支持</string>
+    <string name="file_path_direct_note">可直接进行 CMAF 直通发布，无需重新编码。</string>
+    <string name="file_path_remux_note">编解码格式兼容，但该 MP4 发布前需要先做分片转封装。</string>
+    <string name="file_path_unsupported_note">该容器或其中的媒体轨道不支持无损发布。</string>
 </resources>

@@ -3,6 +3,7 @@ package com.example.moqandroid.publish
 import android.util.Log
 import com.example.moqandroid.publish.audio.AudioPublishSource
 import com.example.moqandroid.publish.encoder.SurfaceVideoEncoder
+import com.example.moqandroid.publish.file.CmafFilePublishSource
 import com.example.moqandroid.protocol.MOQCAST_CATALOG_SECTION_NAME
 import com.example.moqandroid.protocol.VIDEO_LAYOUT_TRACK_NAME
 import com.example.moqandroid.protocol.videoLayoutCatalogSection
@@ -27,28 +28,42 @@ class MoqPublishSession(
         config: PublishSessionConfig,
         audioSource: AudioPublishSource? = null,
     ) {
-        lifecycle.update(PublisherState.Preparing)
-
         try {
-            MoqOriginProducer(MoqOriginOptions()).use { origin ->
-                MoqClient().use { client ->
-                    client.setPublish(origin)
-                    lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
-                    client.connect(relayUrl).use { session ->
-                        try {
-                            origin.createBroadcast(broadcastName).use { broadcast ->
-                                publishBroadcast(broadcast, source, broadcastName, config, audioSource)
-                            }
-                        } finally {
-                            session.shutdown()
-                        }
-                    }
-                }
+            withBroadcast(broadcastName) { broadcast ->
+                publishBroadcast(broadcast, source, broadcastName, config, audioSource)
             }
         } finally {
             source.close()
         }
+    }
 
+    suspend fun publishFile(
+        source: CmafFilePublishSource,
+        broadcastName: String,
+    ) {
+        withBroadcast(broadcastName) { broadcast ->
+            publishFileBroadcast(broadcast, source, broadcastName)
+        }
+    }
+
+    private suspend fun withBroadcast(
+        broadcastName: String,
+        publish: suspend (MoqBroadcastProducer) -> Unit,
+    ) {
+        lifecycle.update(PublisherState.Preparing)
+        MoqOriginProducer(MoqOriginOptions()).use { origin ->
+            MoqClient().use { client ->
+                client.setPublish(origin)
+                lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
+                client.connect(relayUrl).use { session ->
+                    try {
+                        origin.createBroadcast(broadcastName).use { broadcast -> publish(broadcast) }
+                    } finally {
+                        session.shutdown()
+                    }
+                }
+            }
+        }
         lifecycle.update(PublisherState.Stopped)
     }
 
@@ -160,6 +175,32 @@ class MoqPublishSession(
             }
         } finally {
             videoLayout?.let { runCatching { it.finish() } }
+            runCatching { broadcast.finish() }
+        }
+    }
+
+    private suspend fun publishFileBroadcast(
+        broadcast: MoqBroadcastProducer,
+        source: CmafFilePublishSource,
+        broadcastName: String,
+    ) {
+        Log.i(LOG_TAG, "publishing file=${source.file.displayName} format=fmp4")
+        val media = broadcast.publishMediaStream(
+            MoqInit(format = "fmp4", data = byteArrayOf(), video = null),
+        )
+        var mediaFinished = false
+        try {
+            source.publish(
+                media = media,
+                relayUrl = relayUrl,
+                broadcastName = broadcastName,
+                lifecycle = lifecycle,
+            )
+            media.finish()
+            mediaFinished = true
+        } finally {
+            if (!mediaFinished) runCatching { media.finish() }
+            media.close()
             runCatching { broadcast.finish() }
         }
     }

@@ -27,9 +27,10 @@
     <string name="publish_source_file">File</string>
     <string name="publish_source_screen">Screen</string>
     <string name="publish_source_camera_note">Camera source is active.</string>
-    <string name="publish_source_file_note">File publishing is not available yet.</string>
+    <string name="publish_source_file_note">Publish a compatible fragmented MP4 without re-encoding.</string>
     <string name="publish_source_screen_note">Screen capture source is active.</string>
     <string name="source_state_next">next</string>
+    <string name="source_state_select">select</string>
     <string name="source_state_ready">ready</string>
     <string name="coming_soon">Coming soon</string>
     <string name="screen_options">Screen options</string>
@@ -50,6 +51,7 @@
     <string name="include_system_audio">Include system audio</string>
     <string name="publish_screen">Publish screen</string>
     <string name="publish_camera">Publish camera</string>
+    <string name="publish_file">Publish file</string>
     <string name="stop_publish">Stop publish</string>
     <string name="subscribe_action">Subscribe</string>
     <string name="player_preview_label">Player preview</string>
@@ -82,6 +84,8 @@
     <string name="h264_profile_high">High</string>
     <string name="publish_status_starting">Starting screen publish ...</string>
     <string name="publish_status_starting_camera">Starting camera publish ...</string>
+    <string name="publish_status_starting_file">Starting file publish ...</string>
+    <string name="file_publish_notification_title">MoQCast file publishing</string>
     <string name="publish_status_preparing">Preparing publish ...</string>
     <string name="publish_status_connecting">Publishing to %1$s ...\nbroadcast=%2$s</string>
     <string name="publish_status_publishing">Publishing to %1$s\nbroadcast=%2$s\nvideo=%3$dx%4$d %5$dfps target=%6$dkbps\naudio=%7$s</string>
@@ -110,4 +114,23 @@
     <string name="publish_channel_name">MoQCast publishing</string>
     <string name="screen_publish_channel_name">Screen publish</string>
     <string name="stop">Stop</string>
+    <string name="file_selection">Local video</string>
+    <string name="file_not_selected">Choose a file to inspect its container, tracks, and codecs.</string>
+    <string name="file_probing">Inspecting media tracks ...</string>
+    <string name="file_probe_failed">Could not inspect this file: %1$s</string>
+    <string name="file_size_unknown">size unknown</string>
+    <string name="file_no_media_tracks">No video or audio tracks</string>
+    <string name="choose_file">Choose file</string>
+    <string name="choose_another_file">Change</string>
+    <string name="file_tracks">Media tracks</string>
+    <string name="file_publish_path">Planned publish path</string>
+    <string name="file_container_fragmented_mp4">fMP4</string>
+    <string name="file_container_mp4">MP4</string>
+    <string name="file_container_other">Other</string>
+    <string name="file_path_direct">Direct</string>
+    <string name="file_path_remux">Remux</string>
+    <string name="file_path_unsupported">Unsupported</string>
+    <string name="file_path_direct_note">Ready for CMAF passthrough without re-encoding.</string>
+    <string name="file_path_remux_note">The codecs are compatible, but this MP4 needs fragmentation before publishing.</string>
+    <string name="file_path_unsupported_note">This container or one of its media tracks is not supported for lossless publishing.</string>
 </resources>

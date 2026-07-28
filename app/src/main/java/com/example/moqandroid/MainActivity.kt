@@ -14,6 +14,7 @@ import android.view.SurfaceHolder
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -46,6 +47,15 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         applyOrientation = ::applyPlaybackOrientation,
     )
     private var defaultRotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_ROTATE
+    private val publishFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        runCatching {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }.onFailure { error ->
+            Log.w(LOG_TAG, "Could not persist read permission for publish file.", error)
+        }
+        viewModel.selectPublishFile(uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +94,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 includeMicrophone = viewModel.includeMicrophone,
                                 cameraLensFacing = viewModel.cameraLensFacing,
                                 cameraQualityPreset = viewModel.cameraQualityPreset,
+                                publishFileState = viewModel.publishFileState,
                                 status = viewModel.publishStatusMessage,
                                 mode = viewModel.publishPanelMode,
                             ),
@@ -112,6 +123,9 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 onIncludeMicrophoneChange = viewModel::updateIncludeMicrophone,
                                 onCameraLensFacingChange = viewModel::updateCameraLensFacing,
                                 onCameraQualityPresetChange = viewModel::updateCameraQualityPreset,
+                                onChoosePublishFile = {
+                                    publishFilePicker.launch(arrayOf("video/*", "application/mp4"))
+                                },
                                 onPublish = ::requestPublish,
                                 onStopPublish = { viewModel.stopPublish(localizedText(R.string.publish_stopped_by_user)) },
                             ),
@@ -154,6 +168,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                 REQUEST_SCREEN_CAPTURE,
             )
             PublishRequest.StartCamera -> viewModel.startCameraPublish()
+            PublishRequest.StartFile -> viewModel.startFilePublish()
         }
     }
 

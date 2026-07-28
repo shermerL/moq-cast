@@ -145,9 +145,14 @@ fun LabeledField(
 }
 
 @Composable
-fun PrimaryAction(text: String, onClick: () -> Unit) {
+fun PrimaryAction(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp),

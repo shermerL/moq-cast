@@ -17,6 +17,11 @@ import com.example.moqandroid.R
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
+import com.example.moqandroid.publish.file.ProbedPublishFile
+import com.example.moqandroid.publish.file.PublishFileCompatibility
+import com.example.moqandroid.publish.file.PublishFileContainer
+import com.example.moqandroid.publish.file.PublishFileState
+import com.example.moqandroid.publish.file.PublishFileTrackKind
 import com.example.moqandroid.ui.components.LabeledField
 import com.example.moqandroid.ui.components.MoqBrandHeader
 import com.example.moqandroid.ui.components.MoqInfoRow
@@ -60,7 +65,11 @@ fun PublishPanel(
                 value = state.broadcast,
                 placeholder = "bbb.hang",
                 onValueChange = actions.onBroadcastChange,
-                onSubmit = actions.onPublish,
+                onSubmit = {
+                    if (state.source != PublishSourceType.File || state.publishFileState.canPublishDirectly()) {
+                        actions.onPublish()
+                    }
+                },
             )
             Spacer(Modifier.height(12.dp))
             if (state.mode.isActiveLayout()) {
@@ -85,10 +94,12 @@ fun PublishPanel(
                     includeMicrophone = state.includeMicrophone,
                     cameraLensFacing = state.cameraLensFacing,
                     cameraQualityPreset = state.cameraQualityPreset,
+                    publishFileState = state.publishFileState,
                     onIncludeSystemAudioChange = actions.onIncludeSystemAudioChange,
                     onIncludeMicrophoneChange = actions.onIncludeMicrophoneChange,
                     onCameraLensFacingChange = actions.onCameraLensFacingChange,
                     onCameraQualityPresetChange = actions.onCameraQualityPresetChange,
+                    onChoosePublishFile = actions.onChoosePublishFile,
                     onPublish = actions.onPublish,
                 )
             }
@@ -105,10 +116,12 @@ private fun ReadyContent(
     includeMicrophone: Boolean,
     cameraLensFacing: CameraLensFacing,
     cameraQualityPreset: CameraQualityPreset,
+    publishFileState: PublishFileState,
     onIncludeSystemAudioChange: (Boolean) -> Unit,
     onIncludeMicrophoneChange: (Boolean) -> Unit,
     onCameraLensFacingChange: (CameraLensFacing) -> Unit,
     onCameraQualityPresetChange: (CameraQualityPreset) -> Unit,
+    onChoosePublishFile: () -> Unit,
     onPublish: () -> Unit,
 ) {
     SourcePicker(
@@ -134,18 +147,22 @@ private fun ReadyContent(
             Spacer(Modifier.height(24.dp))
             MicrophoneRow(includeMicrophone, onIncludeMicrophoneChange)
         }
-        PublishSourceType.File -> Unit
+        PublishSourceType.File -> FileOptions(
+            state = publishFileState,
+            onChooseFile = onChoosePublishFile,
+        )
     }
     Spacer(Modifier.height(26.dp))
     PrimaryAction(
-        stringResource(
-            if (selectedSource == PublishSourceType.Camera) {
-                R.string.publish_camera
-            } else {
-                R.string.publish_screen
+        text = stringResource(
+            when (selectedSource) {
+                PublishSourceType.Camera -> R.string.publish_camera
+                PublishSourceType.File -> R.string.publish_file
+                PublishSourceType.Screen -> R.string.publish_screen
             },
         ),
-        onPublish,
+        onClick = onPublish,
+        enabled = selectedSource != PublishSourceType.File || publishFileState.canPublishDirectly(),
     )
     Spacer(Modifier.height(16.dp))
     MoqStatusCard(
@@ -241,8 +258,8 @@ private fun SourcePicker(
                 title = stringResource(source.labelRes),
                 subtitle = stringResource(source.stateRes),
                 selected = selected == source,
-                enabled = source.enabled,
-                onClick = { if (source.enabled) onSelected(source) },
+                enabled = true,
+                onClick = { onSelected(source) },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -331,6 +348,99 @@ private fun MicrophoneRow(
     }
 }
 
+@Composable
+private fun FileOptions(
+    state: PublishFileState,
+    onChooseFile: () -> Unit,
+) {
+    when (state) {
+        PublishFileState.NotSelected -> {
+            MoqInfoRow(
+                label = stringResource(R.string.file_selection),
+                note = stringResource(R.string.file_not_selected),
+            ) {
+                MoqPill(
+                    text = stringResource(R.string.choose_file),
+                    selected = false,
+                    onClick = onChooseFile,
+                )
+            }
+        }
+
+        is PublishFileState.Probing -> {
+            MoqInfoRow(
+                label = state.displayName ?: stringResource(R.string.file_selection),
+                note = stringResource(R.string.file_probing),
+            ) {
+                MoqPill(
+                    text = stringResource(R.string.choose_file),
+                    selected = false,
+                    enabled = false,
+                )
+            }
+        }
+
+        is PublishFileState.Failed -> {
+            MoqInfoRow(
+                label = state.displayName ?: stringResource(R.string.file_selection),
+                note = stringResource(R.string.file_probe_failed, state.reason),
+            ) {
+                MoqPill(
+                    text = stringResource(R.string.choose_another_file),
+                    selected = false,
+                    onClick = onChooseFile,
+                )
+            }
+        }
+
+        is PublishFileState.Ready -> FileProbeResult(
+            file = state.file,
+            onChooseFile = onChooseFile,
+        )
+    }
+}
+
+@Composable
+private fun FileProbeResult(
+    file: ProbedPublishFile,
+    onChooseFile: () -> Unit,
+) {
+    MoqInfoRow(
+        label = file.displayName,
+        note = file.fileSummary(),
+    ) {
+        MoqPill(
+            text = stringResource(R.string.choose_another_file),
+            selected = false,
+            onClick = onChooseFile,
+        )
+    }
+    Spacer(Modifier.height(24.dp))
+    MoqInfoRow(
+        label = stringResource(R.string.file_tracks),
+        note = file.trackSummary(),
+    ) {
+        MoqPill(
+            text = stringResource(file.container.labelRes),
+            selected = false,
+        )
+    }
+    Spacer(Modifier.height(24.dp))
+    MoqInfoRow(
+        label = stringResource(R.string.file_publish_path),
+        note = stringResource(file.compatibility.noteRes),
+    ) {
+        MoqPill(
+            text = stringResource(file.compatibility.labelRes),
+            selected = file.compatibility == PublishFileCompatibility.DirectFmp4,
+        )
+    }
+}
+
+private fun PublishFileState.canPublishDirectly(): Boolean {
+    return this is PublishFileState.Ready && file.compatibility == PublishFileCompatibility.DirectFmp4
+}
+
 private val PublishSourceType.marker: String
     get() = when (this) {
         PublishSourceType.Camera -> "CAM"
@@ -350,7 +460,7 @@ private val PublishSourceType.stateRes: Int
         PublishSourceType.Camera,
         PublishSourceType.Screen,
         -> R.string.source_state_ready
-        PublishSourceType.File -> R.string.source_state_next
+        PublishSourceType.File -> R.string.source_state_select
     }
 
 private val PublishSourceType.noteRes: Int
@@ -378,5 +488,72 @@ private val CameraQualityPreset.noteRes: Int
         CameraQualityPreset.Quality -> R.string.camera_quality_quality_note
     }
 
-private val PublishSourceType.enabled: Boolean
-    get() = this != PublishSourceType.File
+private val PublishFileContainer.labelRes: Int
+    @StringRes get() = when (this) {
+        PublishFileContainer.FragmentedMp4 -> R.string.file_container_fragmented_mp4
+        PublishFileContainer.Mp4 -> R.string.file_container_mp4
+        PublishFileContainer.Other -> R.string.file_container_other
+    }
+
+private val PublishFileCompatibility.labelRes: Int
+    @StringRes get() = when (this) {
+        PublishFileCompatibility.DirectFmp4 -> R.string.file_path_direct
+        PublishFileCompatibility.NeedsRemux -> R.string.file_path_remux
+        PublishFileCompatibility.Unsupported -> R.string.file_path_unsupported
+    }
+
+private val PublishFileCompatibility.noteRes: Int
+    @StringRes get() = when (this) {
+        PublishFileCompatibility.DirectFmp4 -> R.string.file_path_direct_note
+        PublishFileCompatibility.NeedsRemux -> R.string.file_path_remux_note
+        PublishFileCompatibility.Unsupported -> R.string.file_path_unsupported_note
+    }
+
+@Composable
+private fun ProbedPublishFile.fileSummary(): String {
+    val duration = durationUs?.let(::formatDuration) ?: "--:--"
+    val size = sizeBytes?.let(::formatFileSize) ?: stringResource(R.string.file_size_unknown)
+    return listOfNotNull(mimeType, duration, size).joinToString(" · ")
+}
+
+@Composable
+private fun ProbedPublishFile.trackSummary(): String {
+    return tracks
+        .filter { it.kind != PublishFileTrackKind.Other }
+        .joinToString("\n") { track ->
+            when (track.kind) {
+                PublishFileTrackKind.Video -> {
+                    val dimensions = if (track.width != null && track.height != null) {
+                        " ${track.width}x${track.height}"
+                    } else {
+                        ""
+                    }
+                    "${track.mimeType}$dimensions"
+                }
+                PublishFileTrackKind.Audio -> {
+                    val audio = buildList {
+                        track.sampleRate?.let { add("${it / 1000} kHz") }
+                        track.channelCount?.let { add("$it ch") }
+                    }.joinToString(" ")
+                    "${track.mimeType}${audio.takeIf(String::isNotEmpty)?.let { " $it" }.orEmpty()}"
+                }
+                PublishFileTrackKind.Other -> track.mimeType
+            }
+        }
+        .ifEmpty { stringResource(R.string.file_no_media_tracks) }
+}
+
+private fun formatDuration(durationUs: Long): String {
+    val totalSeconds = durationUs / 1_000_000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
+private fun formatFileSize(sizeBytes: Long): String {
+    return if (sizeBytes >= 1_000_000) {
+        "%.1f MB".format(sizeBytes / 1_000_000.0)
+    } else {
+        "%.1f KB".format(sizeBytes / 1_000.0)
+    }
+}
