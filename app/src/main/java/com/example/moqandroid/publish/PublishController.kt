@@ -123,17 +123,22 @@ class PublishController(private val context: Context) {
             PublishSourceType.File -> {
                 val file = input.publishFile
                     ?: return PublishPreparation(PublishRequest.None, broadcastName, "Choose a local video first.")
-                if (file.compatibility != PublishFileCompatibility.DirectFmp4) {
+                if (file.compatibility == PublishFileCompatibility.Unsupported) {
                     return PublishPreparation(
                         PublishRequest.None,
                         broadcastName,
-                        "This file is not ready for direct CMAF publishing.",
+                        "This file cannot be published without transcoding.",
                     )
                 }
                 PublishPreparation(
                     PublishRequest.StartFile,
                     broadcastName,
-                    "Starting ${file.displayName} with CMAF passthrough ...\nbroadcast=$broadcastName",
+                    "Starting ${file.displayName} with " +
+                        if (file.compatibility == PublishFileCompatibility.DirectFmp4) {
+                            "CMAF passthrough ...\nbroadcast=$broadcastName"
+                        } else {
+                            "CMAF transmuxing ...\nbroadcast=$broadcastName"
+                        },
                 )
             }
         }

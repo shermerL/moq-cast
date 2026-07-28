@@ -66,7 +66,7 @@ fun PublishPanel(
                 placeholder = "bbb.hang",
                 onValueChange = actions.onBroadcastChange,
                 onSubmit = {
-                    if (state.source != PublishSourceType.File || state.publishFileState.canPublishDirectly()) {
+                    if (state.source != PublishSourceType.File || state.publishFileState.canPublish()) {
                         actions.onPublish()
                     }
                 },
@@ -162,7 +162,7 @@ private fun ReadyContent(
             },
         ),
         onClick = onPublish,
-        enabled = selectedSource != PublishSourceType.File || publishFileState.canPublishDirectly(),
+        enabled = selectedSource != PublishSourceType.File || publishFileState.canPublish(),
     )
     Spacer(Modifier.height(16.dp))
     MoqStatusCard(
@@ -432,13 +432,13 @@ private fun FileProbeResult(
     ) {
         MoqPill(
             text = stringResource(file.compatibility.labelRes),
-            selected = file.compatibility == PublishFileCompatibility.DirectFmp4,
+            selected = file.compatibility != PublishFileCompatibility.Unsupported,
         )
     }
 }
 
-private fun PublishFileState.canPublishDirectly(): Boolean {
-    return this is PublishFileState.Ready && file.compatibility == PublishFileCompatibility.DirectFmp4
+private fun PublishFileState.canPublish(): Boolean {
+    return this is PublishFileState.Ready && file.compatibility != PublishFileCompatibility.Unsupported
 }
 
 private val PublishSourceType.marker: String

@@ -131,6 +131,6 @@
     <string name="file_path_remux">Remux</string>
     <string name="file_path_unsupported">Unsupported</string>
     <string name="file_path_direct_note">Ready for CMAF passthrough without re-encoding.</string>
-    <string name="file_path_remux_note">The codecs are compatible, but this MP4 needs fragmentation before publishing.</string>
+    <string name="file_path_remux_note">This MP4 will be fragmented while publishing without re-encoding.</string>
     <string name="file_path_unsupported_note">This container or one of its media tracks is not supported for lossless publishing.</string>
 </resources>

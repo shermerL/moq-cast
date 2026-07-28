@@ -188,6 +188,18 @@ class MoqPublishSession(
         val media = broadcast.publishMediaStream(
             MoqInit(format = "fmp4", data = byteArrayOf(), video = null),
         )
+        source.presentation?.let { presentation ->
+            broadcast.setVideoPresentation(
+                MoqVideoPresentation(
+                    display = MoqDimensions(
+                        width = presentation.displayWidth.toUInt(),
+                        height = presentation.displayHeight.toUInt(),
+                    ),
+                    rotation = presentation.rotationDegrees.toDouble(),
+                    flip = presentation.flip,
+                ),
+            )
+        }
         var mediaFinished = false
         try {
             source.publish(

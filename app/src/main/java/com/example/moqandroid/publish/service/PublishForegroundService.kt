@@ -227,8 +227,8 @@ class PublishForegroundService : Service() {
         val uri = intent.getStringExtra(EXTRA_FILE_URI)?.let(Uri::parse)
             ?: error("The selected file URI is missing.")
         val file = PublishFileProbe(this).probe(uri)
-        require(file.compatibility == PublishFileCompatibility.DirectFmp4) {
-            "${file.displayName} is not compatible with direct CMAF publishing."
+        require(file.compatibility != PublishFileCompatibility.Unsupported) {
+            "${file.displayName} is not compatible with CMAF publishing."
         }
         MoqPublishSession(
             relayUrl = relayUrl,

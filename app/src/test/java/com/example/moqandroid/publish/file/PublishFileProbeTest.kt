@@ -93,6 +93,22 @@ class PublishFileProbeTest {
             PublishFileCompatibility.Unsupported,
             classify(PublishFileContainer.FragmentedMp4, listOf(video.copy(mimeType = "video/hevc"))),
         )
+        assertEquals(
+            PublishFileCompatibility.Unsupported,
+            classify(PublishFileContainer.FragmentedMp4, listOf(video.copy(hasEncryptedSamples = true))),
+        )
+    }
+
+    @Test
+    fun presentationUsesFinalDisplayDimensionsAfterRotation() {
+        val video = track(PublishFileTrackKind.Video, "video/avc").copy(
+            width = 1920,
+            height = 1080,
+            rotationDegrees = 90,
+        )
+        assertEquals(1080, video.videoPresentation()?.displayWidth)
+        assertEquals(1920, video.videoPresentation()?.displayHeight)
+        assertEquals(90, video.videoPresentation()?.rotationDegrees)
     }
 
     private fun track(kind: PublishFileTrackKind, mimeType: String) = PublishFileTrack(

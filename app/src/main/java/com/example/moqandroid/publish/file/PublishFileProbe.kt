@@ -42,6 +42,8 @@ data class PublishFileTrack(
     val channelCount: Int?,
     val frameRate: Int? = null,
     val bitrate: Int? = null,
+    val rotationDegrees: Int? = null,
+    val hasEncryptedSamples: Boolean = false,
 )
 
 enum class PublishFileTrackKind {
@@ -66,13 +68,13 @@ class PublishFileProbe(private val context: Context) {
     fun probe(uri: Uri): ProbedPublishFile {
         val resolver = context.contentResolver
         val document = resolver.queryDocument(uri)
-        val tracks = readTracks(uri)
         val structure = resolver.openInputStream(uri)?.use(IsoBmffInspector::inspect) ?: IsoBmffStructure()
         val container = when {
             structure.fragmented -> PublishFileContainer.FragmentedMp4
             structure.isoBmff -> PublishFileContainer.Mp4
             else -> PublishFileContainer.Other
         }
+        val tracks = readTracks(uri, inspectSampleEncryption = container == PublishFileContainer.Mp4)
 
         return ProbedPublishFile(
             uri = uri,
@@ -86,11 +88,12 @@ class PublishFileProbe(private val context: Context) {
         )
     }
 
-    private fun readTracks(uri: Uri): List<PublishFileTrack> {
+    private fun readTracks(uri: Uri, inspectSampleEncryption: Boolean): List<PublishFileTrack> {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(context, uri, null)
-            buildList {
+            val encryptedContainer = extractor.psshInfo?.isNotEmpty() == true
+            val tracks = buildList {
                 repeat(extractor.trackCount) { index ->
                     val format = extractor.getTrackFormat(index)
                     val mime = format.getString(MediaFormat.KEY_MIME) ?: "application/octet-stream"
@@ -110,15 +113,49 @@ class PublishFileProbe(private val context: Context) {
                             channelCount = format.intOrNull(MediaFormat.KEY_CHANNEL_COUNT),
                             frameRate = format.intOrNull(MediaFormat.KEY_FRAME_RATE),
                             bitrate = format.intOrNull(MediaFormat.KEY_BIT_RATE),
+                            rotationDegrees = format.intOrNull(MediaFormat.KEY_ROTATION),
                         ),
                     )
                 }
+            }
+            val sampleInspection = if (inspectSampleEncryption) {
+                inspectSamples(extractor, tracks)
+            } else {
+                SampleInspection(emptySet())
+            }
+            tracks.map { track ->
+                track.copy(
+                    hasEncryptedSamples =
+                        encryptedContainer || track.index in sampleInspection.encryptedTracks,
+                )
             }
         } finally {
             extractor.release()
         }
     }
+
+    private fun inspectSamples(
+        extractor: MediaExtractor,
+        tracks: List<PublishFileTrack>,
+    ): SampleInspection {
+        val mediaTracks = tracks.filter {
+            it.kind == PublishFileTrackKind.Video || it.kind == PublishFileTrackKind.Audio
+        }
+        mediaTracks.forEach { extractor.selectTrack(it.index) }
+        val encryptedTracks = mutableSetOf<Int>()
+        val cryptoInfo = android.media.MediaCodec.CryptoInfo()
+        while (extractor.sampleTrackIndex >= 0) {
+            val track = extractor.sampleTrackIndex
+            if (extractor.getSampleCryptoInfo(cryptoInfo)) encryptedTracks += track
+            if (!extractor.advance()) break
+        }
+        return SampleInspection(encryptedTracks)
+    }
 }
+
+private data class SampleInspection(
+    val encryptedTracks: Set<Int>,
+)
 
 private data class DocumentInfo(
     val displayName: String?,
@@ -163,8 +200,11 @@ internal fun classify(
     val supportedTrackLayout = videoTracks.size == 1 && audioTracks.size <= 1 && !hasUnsupportedTrack
     val codecsSupportedForInitialRelease =
         videoTracks.singleOrNull()?.mimeType == MIME_AVC && audioTracks.all { it.mimeType == MIME_AAC }
+    val hasEncryptedSamples = tracks.any(PublishFileTrack::hasEncryptedSamples)
     return when {
-        !supportedTrackLayout || !codecsSupportedForInitialRelease -> PublishFileCompatibility.Unsupported
+        !supportedTrackLayout ||
+            !codecsSupportedForInitialRelease ||
+            hasEncryptedSamples -> PublishFileCompatibility.Unsupported
         container == PublishFileContainer.FragmentedMp4 -> PublishFileCompatibility.DirectFmp4
         container == PublishFileContainer.Mp4 -> PublishFileCompatibility.NeedsRemux
         else -> PublishFileCompatibility.Unsupported
