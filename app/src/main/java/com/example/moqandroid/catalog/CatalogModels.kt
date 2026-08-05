@@ -11,6 +11,7 @@ import uniffi.moq.MoqAudio
 import uniffi.moq.MoqAudioDecoderOutput
 import uniffi.moq.MoqAudioFormat
 import uniffi.moq.MoqCatalog
+import uniffi.moq.MoqContainer
 import uniffi.moq.MoqDimensions
 import uniffi.moq.MoqVideo
 
@@ -89,6 +90,7 @@ private fun Int.swapsAxes(): Boolean = this == 90 || this == 270
 data class PlayableAudioTrack(
     val name: String,
     val audio: MoqAudio,
+    val decoderBackend: AudioDecoderBackend,
     val sampleRate: Int,
     val channelCount: Int,
     val channelMask: Int,
@@ -101,8 +103,12 @@ data class PlayableAudioTrack(
     }
 }
 
+enum class AudioDecoderBackend {
+    MoqNativeOpus,
+    AndroidMediaCodecAac,
+}
+
 fun MoqAudio.toPlayableTrack(name: String): PlayableAudioTrack? {
-    if (codec != "opus") return null
     val sampleRate = sampleRate.toInt()
     val channelCount = channelCount.toInt()
     val channelMask = when (channelCount) {
@@ -110,16 +116,55 @@ fun MoqAudio.toPlayableTrack(name: String): PlayableAudioTrack? {
         2 -> AudioFormat.CHANNEL_OUT_STEREO
         else -> return null
     }
-    return PlayableAudioTrack(name, this, sampleRate, channelCount, channelMask)
+    val decoderBackend = when {
+        codec == "opus" -> AudioDecoderBackend.MoqNativeOpus
+        codec.startsWith("mp4a.40.") &&
+            container is MoqContainer.Cmaf &&
+            description?.isNotEmpty() == true ->
+            AudioDecoderBackend.AndroidMediaCodecAac
+        else -> return null
+    }
+    val track = PlayableAudioTrack(
+        name = name,
+        audio = this,
+        decoderBackend = decoderBackend,
+        sampleRate = sampleRate,
+        channelCount = channelCount,
+        channelMask = channelMask,
+    )
+    return if (
+        decoderBackend != AudioDecoderBackend.AndroidMediaCodecAac ||
+        CodecSupport.hasDecoderFor(track.aacMediaFormat())
+    ) {
+        track
+    } else {
+        null
+    }
 }
 
 fun PlayableAudioTrack.decoderOutput(): MoqAudioDecoderOutput {
+    check(decoderBackend == AudioDecoderBackend.MoqNativeOpus) {
+        "native PCM output is only available for Opus"
+    }
     return MoqAudioDecoderOutput(
         format = MoqAudioFormat.S16,
         sampleRate = sampleRate.toUInt(),
         channels = channelCount.toUInt(),
         latencyMaxMs = 250uL,
     )
+}
+
+fun PlayableAudioTrack.aacMediaFormat(): MediaFormat {
+    check(decoderBackend == AudioDecoderBackend.AndroidMediaCodecAac) {
+        "AAC MediaCodec format requested for $decoderBackend"
+    }
+    val codecDescription = requireNotNull(audio.description) {
+        "AAC AudioSpecificConfig is missing for $name"
+    }
+    return MediaFormat.createAudioFormat("audio/mp4a-latm", sampleRate, channelCount).apply {
+        setByteBuffer("csd-0", ByteBuffer.wrap(codecDescription))
+        setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 64 * 1024)
+    }
 }
 
 fun MoqVideo.toPlayableTrack(name: String): PlayableTrack? {

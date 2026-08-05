@@ -5,7 +5,6 @@ import com.example.moqandroid.catalog.CodecPreference
 import com.example.moqandroid.catalog.PlayableAudioTrack
 import com.example.moqandroid.catalog.PlayableTrack
 import com.example.moqandroid.catalog.PlayableVideoInfo
-import com.example.moqandroid.catalog.decoderOutput
 import com.example.moqandroid.catalog.describe
 import com.example.moqandroid.catalog.displayHeightFor
 import com.example.moqandroid.catalog.displayWidthFor
@@ -21,9 +20,7 @@ data class PlaybackTrackInfo(
     val audio: PlayableAudioTrack?,
     val videoInfo: PlayableVideoInfo,
     val videoLayoutTrackName: String?,
-) {
-    val audioDecoderOutput = audio?.decoderOutput()
-}
+)
 
 data class PlaybackVideoTrackUpdate(
     val video: PlayableTrack,
@@ -41,9 +38,13 @@ class PlaybackTrackSelector(private val logTag: String) {
         val selectedVideo = playableTracks
             .minByOrNull { it.preferenceRank(codecPreference) }
             ?: error("catalog has no playable video tracks")
-        val audioTrack = catalog.audio.entries
+        val audioTracks = catalog.audio.entries
             .mapNotNull { (name, audio) -> audio.toPlayableTrack(name) }
-            .firstOrNull()
+        val audioTrack = audioTracks.firstOrNull()
+        if (catalog.audio.isNotEmpty() && audioTrack == null) {
+            val codecs = catalog.audio.values.joinToString { it.codec }
+            error("catalog has no playable audio tracks: $codecs")
+        }
 
         Log.i(
             logTag,

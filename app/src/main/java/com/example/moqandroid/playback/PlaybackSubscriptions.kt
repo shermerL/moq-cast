@@ -1,6 +1,8 @@
 package com.example.moqandroid.playback
 
 import android.util.Log
+import com.example.moqandroid.catalog.AudioDecoderBackend
+import com.example.moqandroid.catalog.decoderOutput
 import uniffi.moq.MoqAudioConsumer
 import uniffi.moq.MoqBroadcastConsumer
 import uniffi.moq.MoqMediaConsumer
@@ -19,11 +21,26 @@ class PlaybackSubscriptionManager(private val logTag: String) {
             video.video.container,
             MoqSubscription(latencyMaxMs = 250uL),
         )
-        val audioClock = audio?.let { AudioPlaybackClock(it.sampleRate) }
-        val audioConsumer = audio?.let { track ->
-            val output = trackInfo.audioDecoderOutput
-                ?: error("audio decoder output unavailable for ${track.name}")
-            broadcast.subscribeAudio(track.name, track.audio, output)
+        val audioSubscription = audio?.let { track ->
+            val clock = AudioPlaybackClock(track.sampleRate)
+            when (track.decoderBackend) {
+                AudioDecoderBackend.MoqNativeOpus -> DecodedOpusSubscription(
+                    consumer = broadcast.subscribeAudio(
+                        track.name,
+                        track.audio,
+                        track.decoderOutput(),
+                    ),
+                    clock = clock,
+                )
+                AudioDecoderBackend.AndroidMediaCodecAac -> EncodedAacSubscription(
+                    consumer = broadcast.subscribeMedia(
+                        track.name,
+                        track.audio.container,
+                        MoqSubscription(latencyMaxMs = 250uL),
+                    ),
+                    clock = clock,
+                )
+            }
         }
         val videoLayoutConsumer = trackInfo.videoLayoutTrackName?.let { trackName ->
             runCatching { broadcast.subscribeTrack(trackName, null) }
@@ -33,8 +50,7 @@ class PlaybackSubscriptionManager(private val logTag: String) {
 
         return PlaybackSubscriptions(
             media = media,
-            audioConsumer = audioConsumer,
-            audioClock = audioClock,
+            audio = audioSubscription,
             videoLayoutConsumer = videoLayoutConsumer,
         )
     }
@@ -42,13 +58,39 @@ class PlaybackSubscriptionManager(private val logTag: String) {
 
 class PlaybackSubscriptions(
     val media: MoqMediaConsumer,
-    val audioConsumer: MoqAudioConsumer?,
-    val audioClock: AudioPlaybackClock?,
+    val audio: AudioPlaybackSubscription?,
     val videoLayoutConsumer: MoqTrackConsumer?,
 ) {
+    val audioClock: AudioPlaybackClock?
+        get() = audio?.clock
+
     fun cancel() {
         videoLayoutConsumer?.cancel()
-        audioConsumer?.cancel()
+        audio?.cancel()
         media.cancel()
+    }
+}
+
+sealed interface AudioPlaybackSubscription {
+    val clock: AudioPlaybackClock
+
+    fun cancel()
+}
+
+data class DecodedOpusSubscription(
+    val consumer: MoqAudioConsumer,
+    override val clock: AudioPlaybackClock,
+) : AudioPlaybackSubscription {
+    override fun cancel() {
+        consumer.cancel()
+    }
+}
+
+data class EncodedAacSubscription(
+    val consumer: MoqMediaConsumer,
+    override val clock: AudioPlaybackClock,
+) : AudioPlaybackSubscription {
+    override fun cancel() {
+        consumer.cancel()
     }
 }

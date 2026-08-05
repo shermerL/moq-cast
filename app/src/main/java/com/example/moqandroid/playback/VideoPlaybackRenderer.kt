@@ -13,6 +13,7 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import uniffi.moq.MoqContainer
 
 class VideoPlaybackRenderer(
     private val status: (PlayerState) -> Unit,
@@ -45,7 +46,8 @@ class VideoPlaybackRenderer(
             val adaptivePlaybackSupported = decoderCapabilities
                 ?.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback) == true
             val lowLatencyPlayback =
-                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                activeVideo.video.container !is MoqContainer.Cmaf &&
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
                     decoderCapabilities
                         ?.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency) == true
             val adaptiveMaxDimension = if (adaptivePlaybackSupported) {
@@ -64,7 +66,7 @@ class VideoPlaybackRenderer(
                 Log.i(
                     "MoqAndroid",
                     "rotationTrace=$decoderTransitionId decoder starting " +
-                        "track=${activeVideo.name} codec=${activeVideo.video.codec} " +
+                        "name=${codec.name} track=${activeVideo.name} codec=${activeVideo.video.codec} " +
                         "display=${activeVideoInfo.displayWidth ?: "unknown"}x${activeVideoInfo.displayHeight ?: "unknown"} " +
                         "adaptive=$adaptivePlayback maxDimension=${adaptiveMaxDimension ?: "none"} " +
                         "lowLatency=$lowLatencyPlayback",
@@ -117,6 +119,7 @@ class VideoPlaybackRenderer(
                         videoTrackUpdates = videoTrackUpdates,
                         audioClock = subscriptions.audioClock,
                         allowAdaptiveSizeChanges = adaptivePlayback,
+                        drainWhileSourceWaits = activeVideo.video.container is MoqContainer.Cmaf,
                         initialFrameTransitionId = initialFrameTransitionId.also {
                             initialFrameTransitionId = null
                         },

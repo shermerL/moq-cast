@@ -7,12 +7,16 @@ import android.util.Log
 import com.example.moqandroid.catalog.PlayableVideoInfo
 import com.example.moqandroid.media.AvcConfig
 import com.example.moqandroid.media.payloadForDecoder
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.moq.MoqMediaConsumer
 import kotlin.coroutines.coroutineContext
-import kotlin.math.min
 
 internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
     suspend fun decodeLoop(
@@ -28,55 +32,152 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         )
         val transitionTrace = DecoderTransitionTrace()
         val runtime = VideoDecodeRuntime(config, callbacks, info, stats, transitionState, transitionTrace)
+        if (!config.drainWhileSourceWaits) {
+            return@coroutineScope decodeInline(runtime)
+        }
 
-        while (coroutineContext.isActive) {
-            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
-                ?.let { return@coroutineScope it }
-            val frame = config.media.next() ?: break
-            val payload = frame.payloadForDecoder(config.avcConfig)
-            transitionTrace.onInputFrame(frame.timestampUs.toLong(), frame.keyframe, payload.size)
-            stats.onFrameReceived(payload.size)
+        val inputFrames = Channel<VideoInputFrame>(VIDEO_INPUT_QUEUE_CAPACITY)
+        val inputReader = launchVideoInputReader(config, inputFrames)
+        var pendingInput: VideoInputFrame? = null
+        var sourceEnded = false
+        var inputEndOfStreamQueued = false
 
-            var queued = false
-            while (!queued) {
+        try {
+            while (coroutineContext.isActive) {
                 transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
                     ?.let { return@coroutineScope it }
-                val inputIndex = config.codec.dequeueInputBuffer(10_000)
-                if (inputIndex >= 0) {
-                    config.codec.getInputBuffer(inputIndex)?.apply {
-                        clear()
-                        put(payload)
-                    }
-                    config.codec.queueInputBuffer(
-                        inputIndex,
-                        0,
-                        payload.size,
-                        frame.timestampUs.toLong(),
-                        if (frame.keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0,
-                    )
-                    queued = true
-                }
+
                 val drainResult = drainDecoder(runtime)
                 stats.renderedFrames += drainResult.renderedFrames
-            }
+                if (drainResult.endOfStream) return@coroutineScope VideoDecodeResult.StreamEnded
 
-            transitionState.consumeCatalogUpdates(config.videoTrackUpdates, callbacks, transitionTrace)
-                ?.let { return@coroutineScope it }
-            val drainResult = drainDecoder(runtime)
-            stats.renderedFrames += drainResult.renderedFrames
-            stats.flushIfDue { status(PlayerState.Stats(it)) }
+                if (pendingInput == null && !sourceEnded) {
+                    val result = inputFrames.tryReceive()
+                    pendingInput = result.getOrNull()
+                    if (result.isClosed) {
+                        result.exceptionOrNull()?.let { throw it }
+                        sourceEnded = true
+                    }
+                }
+
+                val inputIndex = if (pendingInput != null || (sourceEnded && !inputEndOfStreamQueued)) {
+                    config.codec.dequeueInputBuffer(0)
+                } else {
+                    MediaCodec.INFO_TRY_AGAIN_LATER
+                }
+                if (inputIndex >= 0) {
+                    val input = pendingInput
+                    if (input != null) {
+                        queueInput(runtime, inputIndex, input)
+                        pendingInput = null
+                    } else {
+                        config.codec.queueInputBuffer(
+                            inputIndex,
+                            0,
+                            0,
+                            0,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                        )
+                        inputEndOfStreamQueued = true
+                    }
+                }
+
+                stats.flushIfDue { status(PlayerState.Stats(it)) }
+
+                if (
+                    drainResult.processedFrames == 0 &&
+                    inputIndex < 0 &&
+                    pendingInput == null &&
+                    !sourceEnded
+                ) {
+                    val result = withTimeoutOrNull(VIDEO_CODEC_POLL_INTERVAL_MS) {
+                        inputFrames.receiveCatching()
+                    }
+                    if (result != null) {
+                        pendingInput = result.getOrNull()
+                        if (result.isClosed) {
+                            result.exceptionOrNull()?.let { throw it }
+                            sourceEnded = true
+                        }
+                    }
+                } else if (drainResult.processedFrames == 0 && inputIndex < 0) {
+                    delay(VIDEO_CODEC_POLL_INTERVAL_MS)
+                }
+            }
+        } finally {
+            inputReader.cancel()
+            inputFrames.cancel()
         }
 
         VideoDecodeResult.StreamEnded
     }
 
+    private suspend fun decodeInline(runtime: VideoDecodeRuntime): VideoDecodeResult {
+        while (coroutineContext.isActive) {
+            runtime.transitionState.consumeCatalogUpdates(
+                runtime.config.videoTrackUpdates,
+                runtime.callbacks,
+                runtime.transitionTrace,
+            )?.let { return it }
+            val frame = runtime.config.media.next() ?: break
+            val input = VideoInputFrame(
+                timestampUs = frame.timestampUs.toLong(),
+                keyframe = frame.keyframe,
+                payload = frame.payloadForDecoder(runtime.config.avcConfig),
+            )
+
+            var queued = false
+            while (!queued) {
+                runtime.transitionState.consumeCatalogUpdates(
+                    runtime.config.videoTrackUpdates,
+                    runtime.callbacks,
+                    runtime.transitionTrace,
+                )?.let { return it }
+                val inputIndex = runtime.config.codec.dequeueInputBuffer(VIDEO_INPUT_DEQUEUE_TIMEOUT_US)
+                if (inputIndex >= 0) {
+                    queueInput(runtime, inputIndex, input)
+                    queued = true
+                }
+                val drainResult = drainDecoder(runtime)
+                runtime.stats.renderedFrames += drainResult.renderedFrames
+            }
+
+            val drainResult = drainDecoder(runtime)
+            runtime.stats.renderedFrames += drainResult.renderedFrames
+            runtime.stats.flushIfDue { status(PlayerState.Stats(it)) }
+        }
+
+        return VideoDecodeResult.StreamEnded
+    }
+
+    private fun queueInput(
+        runtime: VideoDecodeRuntime,
+        inputIndex: Int,
+        input: VideoInputFrame,
+    ) {
+        runtime.config.codec.getInputBuffer(inputIndex)?.apply {
+            clear()
+            put(input.payload)
+        }
+        runtime.config.codec.queueInputBuffer(
+            inputIndex,
+            0,
+            input.payload.size,
+            input.timestampUs,
+            if (input.keyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0,
+        )
+        runtime.transitionTrace.onInputFrame(input.timestampUs, input.keyframe, input.payload.size)
+        runtime.stats.onFrameReceived(input.payload.size)
+    }
+
     private suspend fun drainDecoder(runtime: VideoDecodeRuntime): VideoDrainResult {
         var rendered = 0
+        var processed = 0
         while (true) {
             when (val outputIndex = runtime.config.codec.dequeueOutputBuffer(runtime.info, 0)) {
                 MediaCodec.INFO_TRY_AGAIN_LATER -> {
                     runtime.transitionState.finishDiscardingOutputBacklogIfDrained()
-                    return VideoDrainResult(rendered)
+                    return VideoDrainResult(rendered, processed)
                 }
                 MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     val outputFormat = runtime.config.codec.outputFormat
@@ -103,10 +204,11 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                             runtime.transitionState.armFirstFrame(transition.transitionId)
                         }
                     }
-                    return VideoDrainResult(rendered)
+                    return VideoDrainResult(rendered, processed)
                 }
-                MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> return VideoDrainResult(rendered)
+                MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> return VideoDrainResult(rendered, processed)
                 else -> if (outputIndex >= 0) {
+                    processed += 1
                     val discardBacklog = runtime.transitionState.isDiscardingOutputBacklog()
                     val decision = if (discardBacklog) {
                         VideoRenderDecision(render = false)
@@ -118,6 +220,8 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                         size = runtime.info.size,
                         renderDecision = decision.render,
                     )
+                    val endOfStream =
+                        runtime.info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     if (runtime.info.size > 0 && decision.render) {
                         runtime.transitionState.takeFirstFrameTransition()?.let { transitionId ->
                             runtime.callbacks.onTransitionFrameQueued(transitionId, runtime.info.presentationTimeUs)
@@ -132,8 +236,37 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                         runtime.config.codec.releaseOutputBuffer(outputIndex, false)
                         if (discardBacklog) runtime.transitionState.onBacklogOutputDiscarded()
                     }
+                    if (endOfStream) {
+                        return VideoDrainResult(
+                            renderedFrames = rendered,
+                            processedFrames = processed,
+                            endOfStream = true,
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private fun kotlinx.coroutines.CoroutineScope.launchVideoInputReader(
+        config: VideoDecodeConfig,
+        inputFrames: Channel<VideoInputFrame>,
+    ): Job = launch {
+        try {
+            while (coroutineContext.isActive) {
+                val frame = config.media.next() ?: break
+                inputFrames.send(
+                    VideoInputFrame(
+                        timestampUs = frame.timestampUs.toLong(),
+                        keyframe = frame.keyframe,
+                        payload = frame.payloadForDecoder(config.avcConfig),
+                    ),
+                )
+            }
+            inputFrames.close()
+        } catch (error: Throwable) {
+            inputFrames.close(error)
+            throw error
         }
     }
 
@@ -169,21 +302,44 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         return if (containsKey(key)) getInteger(key) else null
     }
 
-    private fun videoRenderDecision(presentationTimeUs: Long, audioClock: AudioPlaybackClock?): VideoRenderDecision {
-        val audioTimeUs = audioClock?.positionUs() ?: return VideoRenderDecision(render = true)
-        val deltaUs = presentationTimeUs - audioTimeUs
-        if (deltaUs < -VIDEO_DROP_LATE_US) return VideoRenderDecision(render = false)
+    private suspend fun videoRenderDecision(
+        presentationTimeUs: Long,
+        audioClock: AudioPlaybackClock?,
+    ): VideoRenderDecision {
+        if (audioClock == null) return VideoRenderDecision(render = true)
 
-        if (deltaUs > VIDEO_RENDER_EARLY_US) {
-            Thread.sleep(min((deltaUs - VIDEO_RENDER_EARLY_US) / 1_000, VIDEO_MAX_SLEEP_MS))
+        val timing = audioClock.timingFor(presentationTimeUs)
+            ?: return VideoRenderDecision(render = true)
+        val deltaUs = presentationTimeUs - timing.positionUs
+
+        if (deltaUs < -VIDEO_DROP_LATE_US) {
+            return VideoRenderDecision(render = false)
         }
 
-        val refreshedAudioTimeUs = audioClock.positionUs() ?: audioTimeUs
-        val refreshedDeltaUs = presentationTimeUs - refreshedAudioTimeUs
-        if (refreshedDeltaUs < -VIDEO_DROP_LATE_US) return VideoRenderDecision(render = false)
+        val initialWaitUs = (timing.targetNanoTimeNs - System.nanoTime()) / 1_000L
+        if (initialWaitUs > VIDEO_CLOCK_WAIT_LOG_THRESHOLD_US) {
+            Log.w(
+                LOG_TAG,
+                "video frame waiting for audio clock presentationTimeUs=$presentationTimeUs " +
+                    "audioPositionUs=${timing.positionUs} waitUs=$initialWaitUs",
+            )
+        }
 
-        val renderTimeNs = audioClock.nanoTimeFor(presentationTimeUs)
-        return VideoRenderDecision(render = true, renderTimeNs = renderTimeNs)
+        while (true) {
+            val nowNs = System.nanoTime()
+            val untilTargetUs = (timing.targetNanoTimeNs - nowNs) / 1_000L
+
+            if (untilTargetUs <= VIDEO_SURFACE_SCHEDULE_AHEAD_US) {
+                return VideoRenderDecision(
+                    render = true,
+                    renderTimeNs = timing.targetNanoTimeNs,
+                )
+            }
+
+            val waitUs = (untilTargetUs - VIDEO_SURFACE_SCHEDULE_AHEAD_US)
+                .coerceAtMost(VIDEO_CLOCK_RECHECK_US)
+            delay(((waitUs + 999L) / 1_000L).coerceAtLeast(1L))
+        }
     }
 }
 
@@ -195,6 +351,7 @@ internal data class VideoDecodeConfig(
     val videoTrackUpdates: ReceiveChannel<PlaybackVideoTrackUpdate>,
     val audioClock: AudioPlaybackClock?,
     val allowAdaptiveSizeChanges: Boolean,
+    val drainWhileSourceWaits: Boolean,
     val initialFrameTransitionId: Int?,
 )
 
@@ -220,6 +377,14 @@ private data class VideoRenderDecision(
 
 private data class VideoDrainResult(
     val renderedFrames: Int,
+    val processedFrames: Int = renderedFrames,
+    val endOfStream: Boolean = false,
+)
+
+private data class VideoInputFrame(
+    val timestampUs: Long,
+    val keyframe: Boolean,
+    val payload: ByteArray,
 )
 
 private class VideoTrackTransitionState(
@@ -492,3 +657,7 @@ sealed interface VideoDecodeResult {
 
 private const val LOG_TAG = "MoqAndroid"
 private const val TRACE_FRAME_LIMIT = 32
+private const val VIDEO_INPUT_QUEUE_CAPACITY = 2
+private const val VIDEO_INPUT_DEQUEUE_TIMEOUT_US = 10_000L
+private const val VIDEO_CODEC_POLL_INTERVAL_MS = 5L
+private const val VIDEO_CLOCK_WAIT_LOG_THRESHOLD_US = 250_000L

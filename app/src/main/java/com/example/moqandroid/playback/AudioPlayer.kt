@@ -1,12 +1,7 @@
 package com.example.moqandroid.playback
 
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTimestamp
 import android.media.AudioTrack
-import android.os.SystemClock
-import android.util.Log
 import com.example.moqandroid.catalog.PlayableAudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -21,113 +16,27 @@ class AudioPlayer(private val logTag: String) {
         audio: PlayableAudioTrack,
         clock: AudioPlaybackClock?,
     ) = withContext(Dispatchers.IO) {
-        val minBuffer = AudioTrack.getMinBufferSize(audio.sampleRate, audio.channelMask, AudioFormat.ENCODING_PCM_16BIT)
-        require(minBuffer > 0) { "Android cannot create audio buffer for ${audio.sampleRate}Hz/${audio.channelCount}ch" }
-
-        val bufferSize = maxOf(minBuffer, audio.bytesPerSecond / 5)
-        val track = createTrack(audio, bufferSize)
-        val stats = AudioRenderStats(logTag, audio)
-
-        try {
-            clock?.bind(track)
-            Log.i(
-                logTag,
-                "audio playback start track=${audio.name} codec=${audio.audio.codec} " +
-                    "decoder=moq-native output=s16 renderer=AudioTrack " +
-                    "sampleRate=${audio.sampleRate} channels=${audio.channelCount} bufferSize=$bufferSize",
-            )
-            track.play()
+        PcmAudioRenderer(
+            logTag = logTag,
+            audio = audio,
+            format = PcmAudioFormat(audio.sampleRate, audio.channelCount),
+            decoderName = "moq-native",
+            clock = clock,
+        ).use { renderer ->
             coroutineScope {
                 while (coroutineContext.isActive) {
                     val frame = consumer.next() ?: break
-                    val data = frame.data
-                    val frameSamples = data.size / audio.bytesPerSampleFrame
-                    clock?.queueFrame(frame.timestampUs.toLong(), frameSamples)
-
-                    var offset = 0
-                    while (offset < data.size && coroutineContext.isActive) {
-                        val written = track.write(data, offset, data.size - offset)
-                        if (written < 0) error("AudioTrack.write failed: $written")
-                        offset += written
-                    }
-                    clock?.commitFrame(track.playbackHeadPosition.toLong())
-                    stats.onFrame(data.size, frame.timestampUs.toLong(), track.playbackHeadPosition.toLong())
+                    renderer.write(frame.data, frame.timestampUs.toLong())
                 }
             }
-        } finally {
-            runCatching { track.pause() }
-            runCatching { track.flush() }
-            track.release()
-        }
-    }
-
-    private fun createTrack(audio: PlayableAudioTrack, bufferSize: Int): AudioTrack {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(audio.sampleRate)
-                        .setChannelMask(audio.channelMask)
-                        .build(),
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            AudioTrack(
-                AudioManager.STREAM_MUSIC,
-                audio.sampleRate,
-                audio.channelMask,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize,
-                AudioTrack.MODE_STREAM,
-            )
         }
     }
 }
 
-private class AudioRenderStats(
-    private val logTag: String,
-    private val audio: PlayableAudioTrack,
-) {
-    private var frames = 0
-    private var bytes = 0L
-    private var lastTimestampUs = 0L
-    private var lastPlaybackHeadFrames = 0L
-    private var lastUpdateMs = SystemClock.elapsedRealtime()
-
-    fun onFrame(size: Int, timestampUs: Long, playbackHeadFrames: Long) {
-        frames += 1
-        bytes += size
-        lastTimestampUs = timestampUs
-        lastPlaybackHeadFrames = playbackHeadFrames
-
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastUpdateMs < 1_000) return
-
-        Log.i(
-            logTag,
-            "audio render track=${audio.name} frames=$frames bytes=$bytes " +
-                "streamTsUs=$lastTimestampUs playbackHeadFrames=$lastPlaybackHeadFrames",
-        )
-
-        frames = 0
-        bytes = 0
-        lastUpdateMs = now
-    }
-}
-
-class AudioPlaybackClock(private val sampleRate: Int) {
+class AudioPlaybackClock(sampleRate: Int) {
     private val lock = Any()
     private val timestamp = AudioTimestamp()
+    private var sampleRate = sampleRate
     private var track: AudioTrack? = null
     private var anchorStreamUs: Long? = null
     private var anchorSubmittedFrames = 0L
@@ -135,9 +44,21 @@ class AudioPlaybackClock(private val sampleRate: Int) {
     private var lastPlaybackHeadFrames = 0L
     private var playbackHeadWraps = 0L
     private var previousPlaybackHead = 0L
+    private var lastTimestampFrames = -1L
+    private var lastTimestampNanoTime = -1L
 
-    fun bind(track: AudioTrack) = synchronized(lock) {
+    fun bind(track: AudioTrack, sampleRate: Int = this.sampleRate) = synchronized(lock) {
+        require(anchorStreamUs == null || this.sampleRate == sampleRate) {
+            "audio output sample rate changed after playback started"
+        }
+        this.sampleRate = sampleRate
         this.track = track
+    }
+
+    fun unbind(track: AudioTrack) = synchronized(lock) {
+        if (this.track !== track) return@synchronized
+        lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, playbackHeadFramesLocked(track))
+        this.track = null
     }
 
     fun queueFrame(timestampUs: Long, frameSamples: Int) = synchronized(lock) {
@@ -153,32 +74,59 @@ class AudioPlaybackClock(private val sampleRate: Int) {
         lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, extendedPlaybackHead)
     }
 
-    fun positionUs(): Long? = synchronized(lock) {
+    internal fun timingFor(streamTimeUs: Long): AudioPlaybackTiming? = synchronized(lock) {
+        val boundTrack = track ?: return null
         val anchor = anchorStreamUs ?: return null
-        val playedSinceAnchor = (currentPlaybackFramesLocked() - anchorSubmittedFrames)
-            .coerceIn(0, (submittedFrames - anchorSubmittedFrames).coerceAtLeast(0))
-        anchor + playedSinceAnchor * 1_000_000L / sampleRate
+        val nowNs = System.nanoTime()
+        val sample = audioTimestampLocked(boundTrack, anchor, nowNs)
+            ?: AudioPlaybackSample(
+                streamTimeUs = streamTimeUsAt(playbackHeadFramesLocked(boundTrack), anchor),
+                nanoTimeNs = nowNs,
+            )
+        val queuedEndUs = streamTimeUsAt(submittedFrames, anchor)
+        sample.timingFor(streamTimeUs, nowNs, queuedEndUs)
     }
 
-    fun nanoTimeFor(streamTimeUs: Long): Long? = synchronized(lock) {
-        val anchor = anchorStreamUs ?: return null
-        val currentFrames = currentPlaybackFramesLocked()
-        val currentStreamUs = anchor + (currentFrames - anchorSubmittedFrames).coerceAtLeast(0) * 1_000_000L / sampleRate
-        return System.nanoTime() + (streamTimeUs - currentStreamUs) * 1_000L
+    private fun audioTimestampLocked(
+        track: AudioTrack,
+        anchorStreamUs: Long,
+        nowNs: Long,
+    ): AudioPlaybackSample? {
+        if (!track.getTimestamp(timestamp)) return null
+        val framePosition = timestamp.framePosition
+        val nanoTime = timestamp.nanoTime
+        val ageNs = nowNs - nanoTime
+
+        if (
+            framePosition < lastTimestampFrames ||
+            nanoTime < lastTimestampNanoTime ||
+            ageNs > AUDIO_TIMESTAMP_MAX_AGE_NS ||
+            ageNs < -AUDIO_TIMESTAMP_MAX_FUTURE_NS
+        ) {
+            return null
+        }
+
+        lastTimestampFrames = framePosition
+        lastTimestampNanoTime = nanoTime
+        lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, framePosition)
+        return AudioPlaybackSample(
+            streamTimeUs = streamTimeUsAt(framePosition, anchorStreamUs),
+            nanoTimeNs = nanoTime,
+        )
     }
 
-    private fun currentPlaybackFramesLocked(): Long {
-        val boundTrack = track
-        if (boundTrack != null && boundTrack.getTimestamp(timestamp)) {
-            lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, timestamp.framePosition)
-            return lastPlaybackHeadFrames
-        }
-
-        boundTrack?.let {
-            lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, extendPlaybackHead(it.playbackHeadPosition.toLong()))
-        }
-
+    private fun playbackHeadFramesLocked(track: AudioTrack): Long {
+        lastPlaybackHeadFrames = maxOf(
+            lastPlaybackHeadFrames,
+            extendPlaybackHead(track.playbackHeadPosition.toLong()),
+        )
         return lastPlaybackHeadFrames
+    }
+
+    private fun streamTimeUsAt(framePosition: Long, anchorStreamUs: Long): Long {
+        val playedSinceAnchor = (framePosition - anchorSubmittedFrames)
+            .coerceIn(0, (submittedFrames - anchorSubmittedFrames).coerceAtLeast(0))
+        return anchorStreamUs + playedSinceAnchor * 1_000_000L / sampleRate
     }
 
     private fun extendPlaybackHead(playbackHeadFrames: Long): Long {
@@ -188,3 +136,29 @@ class AudioPlaybackClock(private val sampleRate: Int) {
         return playbackHeadWraps + normalized
     }
 }
+
+internal data class AudioPlaybackTiming(
+    val positionUs: Long,
+    val targetNanoTimeNs: Long,
+)
+
+internal data class AudioPlaybackSample(
+    val streamTimeUs: Long,
+    val nanoTimeNs: Long,
+) {
+    fun timingFor(
+        targetStreamTimeUs: Long,
+        nowNs: Long,
+        queuedEndUs: Long,
+    ): AudioPlaybackTiming {
+        val elapsedUs = ((nowNs - nanoTimeNs).coerceAtLeast(0L) / 1_000L)
+        val currentStreamTimeUs = (streamTimeUs + elapsedUs).coerceAtMost(queuedEndUs)
+        return AudioPlaybackTiming(
+            positionUs = currentStreamTimeUs,
+            targetNanoTimeNs = nanoTimeNs + (targetStreamTimeUs - streamTimeUs) * 1_000L,
+        )
+    }
+}
+
+private const val AUDIO_TIMESTAMP_MAX_AGE_NS = 5_000_000_000L
+private const val AUDIO_TIMESTAMP_MAX_FUTURE_NS = 1_000_000_000L
