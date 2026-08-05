@@ -16,7 +16,7 @@ import uniffi.moq.MoqDimensions
 import uniffi.moq.MoqInit
 import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
-import uniffi.moq.MoqVideoPresentation
+import uniffi.moq.MoqVideoProperties
 
 class MoqPublishSession(
     private val relayUrl: String,
@@ -82,7 +82,7 @@ class MoqPublishSession(
                 width = presentation.displayWidth.toUInt(),
                 height = presentation.displayHeight.toUInt(),
             )
-            val videoPresentation = MoqVideoPresentation(
+            val videoProperties = MoqVideoProperties(
                 display = display,
                 rotation = presentation.rotationDegrees.toDouble(),
                 flip = presentation.flip,
@@ -91,7 +91,7 @@ class MoqPublishSession(
             // Manual omission checks: comment out the default declaration above and enable one block at a time.
             // Test 1: omit video.display from the catalog.
 
-//            val videoPresentation = MoqVideoPresentation(
+//            val videoProperties = MoqVideoProperties(
 //                display = null,
 //                rotation = presentation.rotationDegrees.toDouble(),
 //                flip = presentation.flip,
@@ -100,7 +100,7 @@ class MoqPublishSession(
 
             // Test 2: omit video.rotation from the catalog.
 
-//            val videoPresentation = MoqVideoPresentation(
+//            val videoProperties = MoqVideoProperties(
 //                display = display,
 //                rotation = null,
 //                flip = presentation.flip,
@@ -109,13 +109,13 @@ class MoqPublishSession(
 
             // Test 3: omit video.flip from the catalog.
 
-//            val videoPresentation = MoqVideoPresentation(
+//            val videoProperties = MoqVideoProperties(
 //                display = display,
 //                rotation = presentation.rotationDegrees.toDouble(),
 //                flip = null,
 //            )
 
-            broadcast.setVideoPresentation(videoPresentation)
+            broadcast.setVideoProperties(videoProperties)
             Log.i(
                 LOG_TAG,
                 "publishing video format=avc3 " +
@@ -189,8 +189,8 @@ class MoqPublishSession(
             MoqInit(format = "fmp4", data = byteArrayOf(), video = null),
         )
         source.presentation?.let { presentation ->
-            broadcast.setVideoPresentation(
-                MoqVideoPresentation(
+            broadcast.setVideoProperties(
+                MoqVideoProperties(
                     display = MoqDimensions(
                         width = presentation.displayWidth.toUInt(),
                         height = presentation.displayHeight.toUInt(),

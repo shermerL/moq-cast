@@ -33,7 +33,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/moq-camera-rotation-arm64.aar"))
+    implementation(files("libs/moq-ffi-0.3.4+7.gda45f8a6-android-arm64.aar"))
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.activity:activity-compose:1.10.1")
