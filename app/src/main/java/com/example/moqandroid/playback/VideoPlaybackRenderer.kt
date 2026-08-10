@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import com.example.moqandroid.BuildConfig
 import com.example.moqandroid.catalog.PlayableVideoInfo
 import com.example.moqandroid.catalog.mediaFormat
 import kotlinx.coroutines.CompletableDeferred
@@ -37,6 +38,12 @@ class VideoPlaybackRenderer(
         while (true) {
             val decoderTransitionId = transitionId
             val codec = MediaCodec.createDecoderByType(activeVideo.mime)
+            val cmafPlayback = activeVideo.video.container is MoqContainer.Cmaf
+            val playbackDiagnostics = VideoPlaybackDiagnostics(
+                trackName = activeVideo.name,
+                codecName = codec.name,
+                enabled = cmafPlayback && BuildConfig.DEBUG,
+            )
             var codecStarted = false
             val renderCallbacksEnabled = AtomicBoolean(true)
             val decoderCapabilities = runCatching {
@@ -86,6 +93,7 @@ class VideoPlaybackRenderer(
                 codec.setOnFrameRenderedListener(
                     { _, presentationTimeUs, nanoTime ->
                         if (renderCallbacksEnabled.get()) {
+                            playbackDiagnostics.onSurfaceFrameRendered(presentationTimeUs)
                             val pending = pendingRenderedFrame.get()
                             if (
                                 pending != null &&
@@ -119,7 +127,8 @@ class VideoPlaybackRenderer(
                         videoTrackUpdates = videoTrackUpdates,
                         audioClock = subscriptions.audioClock,
                         allowAdaptiveSizeChanges = adaptivePlayback,
-                        drainWhileSourceWaits = activeVideo.video.container is MoqContainer.Cmaf,
+                        drainWhileSourceWaits = cmafPlayback,
+                        diagnostics = playbackDiagnostics,
                         initialFrameTransitionId = initialFrameTransitionId.also {
                             initialFrameTransitionId = null
                         },

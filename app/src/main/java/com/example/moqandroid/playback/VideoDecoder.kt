@@ -83,6 +83,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                 }
 
                 stats.flushIfDue { status(PlayerState.Stats(it)) }
+                config.diagnostics.flushIfDue()
 
                 if (
                     drainResult.processedFrames == 0 &&
@@ -145,6 +146,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
             val drainResult = drainDecoder(runtime)
             runtime.stats.renderedFrames += drainResult.renderedFrames
             runtime.stats.flushIfDue { status(PlayerState.Stats(it)) }
+            runtime.config.diagnostics.flushIfDue()
         }
 
         return VideoDecodeResult.StreamEnded
@@ -168,6 +170,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         )
         runtime.transitionTrace.onInputFrame(input.timestampUs, input.keyframe, input.payload.size)
         runtime.stats.onFrameReceived(input.payload.size)
+        runtime.config.diagnostics.onInput(input.timestampUs, input.keyframe, input.payload)
     }
 
     private suspend fun drainDecoder(runtime: VideoDecodeRuntime): VideoDrainResult {
@@ -213,8 +216,19 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                     val decision = if (discardBacklog) {
                         VideoRenderDecision(render = false)
                     } else {
-                        videoRenderDecision(runtime.info.presentationTimeUs, runtime.config.audioClock)
+                        videoRenderDecision(
+                            presentationTimeUs = runtime.info.presentationTimeUs,
+                            audioClock = runtime.config.audioClock,
+                            diagnostics = runtime.config.diagnostics,
+                        )
                     }
+                    runtime.config.diagnostics.onOutput(
+                        presentationTimeUs = runtime.info.presentationTimeUs,
+                        outputSize = runtime.info.size,
+                        rendered = runtime.info.size > 0 && decision.render,
+                        audioDeltaUs = decision.audioDeltaUs,
+                        waitedUs = decision.waitedUs,
+                    )
                     runtime.transitionTrace.onOutputFrame(
                         presentationTimeUs = runtime.info.presentationTimeUs,
                         size = runtime.info.size,
@@ -305,6 +319,7 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
     private suspend fun videoRenderDecision(
         presentationTimeUs: Long,
         audioClock: AudioPlaybackClock?,
+        diagnostics: VideoPlaybackDiagnostics,
     ): VideoRenderDecision {
         if (audioClock == null) return VideoRenderDecision(render = true)
 
@@ -313,10 +328,12 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         val deltaUs = presentationTimeUs - timing.positionUs
 
         if (deltaUs < -VIDEO_DROP_LATE_US) {
-            return VideoRenderDecision(render = false)
+            return VideoRenderDecision(render = false, audioDeltaUs = deltaUs)
         }
 
+        val waitStartedNs = System.nanoTime()
         val initialWaitUs = (timing.targetNanoTimeNs - System.nanoTime()) / 1_000L
+        val waitsForTarget = initialWaitUs > VIDEO_SURFACE_SCHEDULE_AHEAD_US
         if (initialWaitUs > VIDEO_CLOCK_WAIT_LOG_THRESHOLD_US) {
             Log.w(
                 LOG_TAG,
@@ -333,8 +350,21 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                 return VideoRenderDecision(
                     render = true,
                     renderTimeNs = timing.targetNanoTimeNs,
+                    audioDeltaUs = deltaUs,
+                    waitedUs = if (waitsForTarget) {
+                        ((nowNs - waitStartedNs) / 1_000L).coerceAtLeast(0L)
+                    } else {
+                        0L
+                    },
                 )
             }
+
+            diagnostics.onOutputHeld(
+                presentationTimeUs = presentationTimeUs,
+                audioPositionUs = timing.positionUs,
+                remainingUs = untilTargetUs,
+                heldUs = ((nowNs - waitStartedNs) / 1_000L).coerceAtLeast(0L),
+            )
 
             val waitUs = (untilTargetUs - VIDEO_SURFACE_SCHEDULE_AHEAD_US)
                 .coerceAtMost(VIDEO_CLOCK_RECHECK_US)
@@ -352,6 +382,7 @@ internal data class VideoDecodeConfig(
     val audioClock: AudioPlaybackClock?,
     val allowAdaptiveSizeChanges: Boolean,
     val drainWhileSourceWaits: Boolean,
+    val diagnostics: VideoPlaybackDiagnostics,
     val initialFrameTransitionId: Int?,
 )
 
@@ -373,6 +404,8 @@ private data class VideoDecodeRuntime(
 private data class VideoRenderDecision(
     val render: Boolean,
     val renderTimeNs: Long? = null,
+    val audioDeltaUs: Long? = null,
+    val waitedUs: Long = 0,
 )
 
 private data class VideoDrainResult(
