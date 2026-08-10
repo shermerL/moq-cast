@@ -10,6 +10,18 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.0 (Debug) - 2026-08-10
+
+### 中文
+
+- 完善摄像头方向元数据、前后镜头选择
+- 支持 CMAF/fMP4 文件发布
+
+### English
+
+- Improve camera orientation metadata and lens selection
+- Support CMAF/fMP4 file publishing
+
 ## 0.3.0 (Debug) - 2026-07-16
 
 ### 中文
