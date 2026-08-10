@@ -3,6 +3,8 @@ package com.example.moqandroid.publish.file
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PublishFileProbeTest {
@@ -109,6 +111,36 @@ class PublishFileProbeTest {
         assertEquals(1080, video.videoPresentation()?.displayWidth)
         assertEquals(1920, video.videoPresentation()?.displayHeight)
         assertEquals(90, video.videoPresentation()?.rotationDegrees)
+    }
+
+    @Test
+    fun avcInspectorFindsBSliceInAnnexBAndAvccSamples() {
+        val annexB = byteArrayOf(0, 0, 0, 1, 0x41, 0xa0.toByte())
+        val avcc = byteArrayOf(0, 0, 0, 2, 0x41, 0xa0.toByte())
+
+        assertEquals(AvcSampleInspection.BSlice, AvcSampleTimingInspector.inspect(annexB))
+        assertEquals(AvcSampleInspection.BSlice, AvcSampleTimingInspector.inspect(avcc))
+    }
+
+    @Test
+    fun avcInspectorDoesNotClassifyPSliceAsBFrame() {
+        val annexB = byteArrayOf(0, 0, 1, 0x41, 0xc0.toByte())
+
+        assertEquals(AvcSampleInspection.NoBSlice, AvcSampleTimingInspector.inspect(annexB))
+    }
+
+    @Test
+    fun avcInspectorRejectsTruncatedSliceHeader() {
+        val annexB = byteArrayOf(0, 0, 1, 0x41)
+
+        assertEquals(AvcSampleInspection.Unrecognized, AvcSampleTimingInspector.inspect(annexB))
+    }
+
+    @Test
+    fun bSlicesRequirePresentationTimestampReordering() {
+        assertTrue(AvcTimingInspection(hasBSlice = true, hasPtsRegression = false).lacksCompositionTiming)
+        assertFalse(AvcTimingInspection(hasBSlice = true, hasPtsRegression = true).lacksCompositionTiming)
+        assertFalse(AvcTimingInspection(hasBSlice = false, hasPtsRegression = false).lacksCompositionTiming)
     }
 
     private fun track(kind: PublishFileTrackKind, mimeType: String) = PublishFileTrack(

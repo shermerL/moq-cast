@@ -32,6 +32,7 @@ import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.publish.file.CmafFilePublishSource
 import com.example.moqandroid.publish.file.PublishFileCompatibility
+import com.example.moqandroid.publish.file.unsupportedMessage
 import com.example.moqandroid.publish.file.PublishFileProbe
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenPublishSource
@@ -228,7 +229,7 @@ class PublishForegroundService : Service() {
             ?: error("The selected file URI is missing.")
         val file = PublishFileProbe(this).probe(uri)
         require(file.compatibility != PublishFileCompatibility.Unsupported) {
-            "${file.displayName} is not compatible with CMAF publishing."
+            file.unsupportedMessage()
         }
         MoqPublishSession(
             relayUrl = relayUrl,

@@ -133,4 +133,5 @@
     <string name="file_path_direct_note">Ready for CMAF passthrough without re-encoding.</string>
     <string name="file_path_remux_note">This MP4 will be fragmented while publishing without re-encoding.</string>
     <string name="file_path_unsupported_note">This container or one of its media tracks is not supported for lossless publishing.</string>
+    <string name="file_path_unsupported_b_frame_timing_note">This H.264 file contains B-frames without usable composition timing. Re-encode it before lossless publishing.</string>
 </resources>

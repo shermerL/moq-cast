@@ -29,7 +29,7 @@ class CmafFilePublishSource(
         lifecycle: PublisherLifecycleEventSink,
     ) {
         require(file.compatibility != PublishFileCompatibility.Unsupported) {
-            "${file.displayName} is not compatible with CMAF publishing."
+            file.unsupportedMessage()
         }
         when (file.compatibility) {
             PublishFileCompatibility.DirectFmp4 -> {

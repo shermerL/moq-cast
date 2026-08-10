@@ -14,6 +14,7 @@ import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.publish.file.ProbedPublishFile
 import com.example.moqandroid.publish.file.PublishFileCompatibility
+import com.example.moqandroid.publish.file.unsupportedMessage
 import com.example.moqandroid.publish.service.PublishForegroundService
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
@@ -127,7 +128,7 @@ class PublishController(private val context: Context) {
                     return PublishPreparation(
                         PublishRequest.None,
                         broadcastName,
-                        "This file cannot be published without transcoding.",
+                        file.unsupportedMessage(),
                     )
                 }
                 PublishPreparation(

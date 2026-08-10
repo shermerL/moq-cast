@@ -1,11 +1,13 @@
 package com.example.moqandroid.publish.file
 
 import android.content.Context
+import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.InputStream
+import java.nio.ByteBuffer
 
 sealed interface PublishFileState {
     data object NotSelected : PublishFileState
@@ -29,6 +31,7 @@ data class ProbedPublishFile(
     val tracks: List<PublishFileTrack>,
     val container: PublishFileContainer,
     val compatibility: PublishFileCompatibility,
+    val unsupportedReason: PublishFileUnsupportedReason? = null,
 )
 
 data class PublishFileTrack(
@@ -64,6 +67,16 @@ enum class PublishFileCompatibility {
     Unsupported,
 }
 
+enum class PublishFileUnsupportedReason {
+    MissingAvcCompositionTiming,
+}
+
+fun ProbedPublishFile.unsupportedMessage(): String = when (unsupportedReason) {
+    PublishFileUnsupportedReason.MissingAvcCompositionTiming ->
+        "This H.264 file contains B-frames without usable composition timing and must be re-encoded before publishing."
+    null -> "This file cannot be published without transcoding."
+}
+
 class PublishFileProbe(private val context: Context) {
     fun probe(uri: Uri): ProbedPublishFile {
         val resolver = context.contentResolver
@@ -74,21 +87,33 @@ class PublishFileProbe(private val context: Context) {
             structure.isoBmff -> PublishFileContainer.Mp4
             else -> PublishFileContainer.Other
         }
-        val tracks = readTracks(uri, inspectSampleEncryption = container == PublishFileContainer.Mp4)
+        val inspection = readTracks(uri, inspectSamples = container == PublishFileContainer.Mp4)
+        val baseCompatibility = classify(container, inspection.tracks)
+        val unsupportedReason = when {
+            baseCompatibility == PublishFileCompatibility.NeedsRemux &&
+                inspection.avcTiming?.lacksCompositionTiming == true ->
+                PublishFileUnsupportedReason.MissingAvcCompositionTiming
+            else -> null
+        }
 
         return ProbedPublishFile(
             uri = uri,
             displayName = document.displayName ?: uri.lastPathSegment ?: "media",
             mimeType = resolver.getType(uri),
             sizeBytes = document.sizeBytes,
-            durationUs = tracks.mapNotNull(PublishFileTrack::durationUs).maxOrNull(),
-            tracks = tracks,
+            durationUs = inspection.tracks.mapNotNull(PublishFileTrack::durationUs).maxOrNull(),
+            tracks = inspection.tracks,
             container = container,
-            compatibility = classify(container, tracks),
+            compatibility = if (unsupportedReason == null) {
+                baseCompatibility
+            } else {
+                PublishFileCompatibility.Unsupported
+            },
+            unsupportedReason = unsupportedReason,
         )
     }
 
-    private fun readTracks(uri: Uri, inspectSampleEncryption: Boolean): List<PublishFileTrack> {
+    private fun readTracks(uri: Uri, inspectSamples: Boolean): TrackInspection {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(context, uri, null)
@@ -118,17 +143,20 @@ class PublishFileProbe(private val context: Context) {
                     )
                 }
             }
-            val sampleInspection = if (inspectSampleEncryption) {
+            val sampleInspection = if (inspectSamples) {
                 inspectSamples(extractor, tracks)
             } else {
                 SampleInspection(emptySet())
             }
-            tracks.map { track ->
-                track.copy(
-                    hasEncryptedSamples =
-                        encryptedContainer || track.index in sampleInspection.encryptedTracks,
-                )
-            }
+            TrackInspection(
+                tracks = tracks.map { track ->
+                    track.copy(
+                        hasEncryptedSamples =
+                            encryptedContainer || track.index in sampleInspection.encryptedTracks,
+                    )
+                },
+                avcTiming = sampleInspection.avcTiming,
+            )
         } finally {
             extractor.release()
         }
@@ -143,18 +171,82 @@ class PublishFileProbe(private val context: Context) {
         }
         mediaTracks.forEach { extractor.selectTrack(it.index) }
         val encryptedTracks = mutableSetOf<Int>()
-        val cryptoInfo = android.media.MediaCodec.CryptoInfo()
+        val cryptoInfo = MediaCodec.CryptoInfo()
+        val avcTrack = tracks.singleOrNull {
+            it.kind == PublishFileTrackKind.Video && it.mimeType == MIME_AVC
+        }
+        val sampleBuffer = avcTrack?.let {
+            val maxInputSize = extractor.getTrackFormat(it.index).intOrNull(MediaFormat.KEY_MAX_INPUT_SIZE)
+            ByteBuffer.allocate(
+                (maxInputSize ?: DEFAULT_AVC_SAMPLE_BYTES).coerceIn(MIN_AVC_SAMPLE_BYTES, MAX_AVC_SAMPLE_BYTES),
+            )
+        }
+        var previousVideoPtsUs: Long? = null
+        var firstVideoPtsUs: Long? = null
+        var hasPtsRegression = false
+        var hasBSlice = false
+        var inspectedVideoSamples = 0
+        var syncSamples = 0
+        var inspectAvcPayload = avcTrack != null
         while (extractor.sampleTrackIndex >= 0) {
             val track = extractor.sampleTrackIndex
             if (extractor.getSampleCryptoInfo(cryptoInfo)) encryptedTracks += track
+            if (track == avcTrack?.index) {
+                val ptsUs = extractor.sampleTime
+                previousVideoPtsUs?.let { previous ->
+                    if (ptsUs < previous) hasPtsRegression = true
+                }
+                previousVideoPtsUs = ptsUs
+                if (firstVideoPtsUs == null) firstVideoPtsUs = ptsUs
+
+                val isSync = extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0
+                if (isSync) syncSamples++
+                val reachedNextGop = syncSamples >= 2 && inspectedVideoSamples > 0
+                val exceededInspectionWindow =
+                    inspectedVideoSamples >= MAX_INSPECTED_VIDEO_SAMPLES ||
+                        ptsUs - (firstVideoPtsUs ?: ptsUs) > MAX_INSPECTION_DURATION_US
+                if (reachedNextGop || exceededInspectionWindow || hasBSlice) {
+                    inspectAvcPayload = false
+                }
+                if (inspectAvcPayload && sampleBuffer != null) {
+                    sampleBuffer.clear()
+                    val sampleSize = runCatching { extractor.readSampleData(sampleBuffer, 0) }.getOrDefault(-1)
+                    if (sampleSize in 1..sampleBuffer.capacity()) {
+                        val bytes = ByteArray(sampleSize)
+                        sampleBuffer.position(0)
+                        sampleBuffer.get(bytes)
+                        if (AvcSampleTimingInspector.inspect(bytes) == AvcSampleInspection.BSlice) {
+                            hasBSlice = true
+                        }
+                    }
+                    inspectedVideoSamples++
+                }
+            }
             if (!extractor.advance()) break
         }
-        return SampleInspection(encryptedTracks)
+        return SampleInspection(
+            encryptedTracks = encryptedTracks,
+            avcTiming = avcTrack?.let { AvcTimingInspection(hasBSlice, hasPtsRegression) },
+        )
+    }
+
+    private companion object {
+        const val MIN_AVC_SAMPLE_BYTES = 64 * 1024
+        const val DEFAULT_AVC_SAMPLE_BYTES = 2 * 1024 * 1024
+        const val MAX_AVC_SAMPLE_BYTES = 8 * 1024 * 1024
+        const val MAX_INSPECTED_VIDEO_SAMPLES = 300
+        const val MAX_INSPECTION_DURATION_US = 12_000_000L
     }
 }
 
+private data class TrackInspection(
+    val tracks: List<PublishFileTrack>,
+    val avcTiming: AvcTimingInspection?,
+)
+
 private data class SampleInspection(
     val encryptedTracks: Set<Int>,
+    val avcTiming: AvcTimingInspection? = null,
 )
 
 private data class DocumentInfo(

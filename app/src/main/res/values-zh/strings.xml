@@ -133,4 +133,5 @@
     <string name="file_path_direct_note">可直接进行 CMAF 直通发布，无需重新编码。</string>
     <string name="file_path_remux_note">发布时流式分片转封装，不会重新编码。</string>
     <string name="file_path_unsupported_note">该容器或其中的媒体轨道不支持无损发布。</string>
+    <string name="file_path_unsupported_b_frame_timing_note">该 H.264 文件包含 B 帧，但未提供可用的合成时间信息。请重新编码后再进行无损发布。</string>
 </resources>

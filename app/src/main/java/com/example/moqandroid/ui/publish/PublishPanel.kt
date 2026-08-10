@@ -19,6 +19,7 @@ import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.file.ProbedPublishFile
 import com.example.moqandroid.publish.file.PublishFileCompatibility
+import com.example.moqandroid.publish.file.PublishFileUnsupportedReason
 import com.example.moqandroid.publish.file.PublishFileContainer
 import com.example.moqandroid.publish.file.PublishFileState
 import com.example.moqandroid.publish.file.PublishFileTrackKind
@@ -428,7 +429,7 @@ private fun FileProbeResult(
     Spacer(Modifier.height(24.dp))
     MoqInfoRow(
         label = stringResource(R.string.file_publish_path),
-        note = stringResource(file.compatibility.noteRes),
+        note = stringResource(file.publishPathNoteRes),
     ) {
         MoqPill(
             text = stringResource(file.compatibility.labelRes),
@@ -507,6 +508,13 @@ private val PublishFileCompatibility.noteRes: Int
         PublishFileCompatibility.DirectFmp4 -> R.string.file_path_direct_note
         PublishFileCompatibility.NeedsRemux -> R.string.file_path_remux_note
         PublishFileCompatibility.Unsupported -> R.string.file_path_unsupported_note
+    }
+
+private val ProbedPublishFile.publishPathNoteRes: Int
+    @StringRes get() = when (unsupportedReason) {
+        PublishFileUnsupportedReason.MissingAvcCompositionTiming ->
+            R.string.file_path_unsupported_b_frame_timing_note
+        null -> compatibility.noteRes
     }
 
 @Composable
