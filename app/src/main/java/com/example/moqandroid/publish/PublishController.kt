@@ -22,7 +22,7 @@ import com.example.moqandroid.publish.screen.withScreenSize
 import kotlinx.coroutines.flow.StateFlow
 
 class PublishController(private val context: Context) {
-    val status: StateFlow<PublishState> = PublishForegroundService.status
+    val status: StateFlow<PublishStatusSnapshot> = PublishForegroundService.status
 
     fun prepare(input: PublishPreparationInput): PublishPreparation {
         val broadcastName = input.broadcastInput.trim().trim('/')
@@ -53,7 +53,7 @@ class PublishController(private val context: Context) {
             input.includeSystemAudio &&
             !input.permissions.recordAudio
         ) {
-            PublishForegroundService.prepare()
+            PublishForegroundService.prepare(input.target)
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
                 broadcastName,
@@ -61,7 +61,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (input.source == PublishSourceType.Camera && !input.permissions.camera) {
-            PublishForegroundService.prepare()
+            PublishForegroundService.prepare(input.target)
             return PublishPreparation(
                 PublishRequest.RequestCamera,
                 broadcastName,
@@ -73,7 +73,7 @@ class PublishController(private val context: Context) {
             input.includeMicrophone &&
             !input.permissions.recordAudio
         ) {
-            PublishForegroundService.prepare()
+            PublishForegroundService.prepare(input.target)
             return PublishPreparation(
                 PublishRequest.RequestRecordAudio,
                 broadcastName,
@@ -81,7 +81,7 @@ class PublishController(private val context: Context) {
             )
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !input.permissions.notifications) {
-            PublishForegroundService.prepare()
+            PublishForegroundService.prepare(input.target)
             return PublishPreparation(
                 PublishRequest.RequestNotifications,
                 broadcastName,
@@ -89,7 +89,7 @@ class PublishController(private val context: Context) {
             )
         }
 
-        PublishForegroundService.prepare()
+        PublishForegroundService.prepare(input.target)
         return when (input.source) {
             PublishSourceType.Camera -> runCatching {
                 CameraPublishCapabilityResolver.resolve(
@@ -239,6 +239,7 @@ data class PublishPreparationInput(
     val cameraQualityPreset: CameraQualityPreset,
     val publishFile: ProbedPublishFile?,
     val permissions: PublishPermissions,
+    val target: PublishTarget = PublishTarget.Relay,
 )
 
 data class PublishPermissions(

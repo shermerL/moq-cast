@@ -32,7 +32,9 @@ import com.example.moqandroid.publish.FilePublishStartRequest
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.PublishState
+import com.example.moqandroid.publish.PublishStatusSnapshot
 import com.example.moqandroid.publish.PublishStatusFormatter
+import com.example.moqandroid.publish.PublishTarget
 import com.example.moqandroid.publish.ScreenPublishStartRequest
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
@@ -194,8 +196,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (initialLanMeshEnabled) acquireLanUiLease()
         viewModelScope.launch {
-            publishController.status.collect { state ->
-                updatePublishStatus(state)
+            publishController.status.collect { snapshot ->
+                updatePublishStatus(snapshot)
             }
         }
     }
@@ -473,6 +475,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     notifications = hasNotificationPermission,
                     recordAudio = true,
                 ),
+                target = PublishTarget.Lan,
             ),
         )
         preparation.broadcastName?.let { activeBroadcastName = it }
@@ -672,27 +675,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         configStore.saveRelayUrl(nextRelayConfig.relayUrl)
     }
 
-    private fun updatePublishStatus(state: PublishState) {
+    private fun updatePublishStatus(snapshot: PublishStatusSnapshot) {
+        val state = snapshot.state
         val message = PublishStatusFormatter(localizedResources).format(state)
         Log.i(logTag, message)
         viewModelScope.launch(Dispatchers.Main.immediate) {
             publishPanelMode = state.toPublishPanelMode()
             publishStatusMessage = message
-            if (nearbyMediaState.isLocalScreenSession() || nearbyScreenPublishPending) {
-                nearbyMediaState = when (state) {
-                    PublishState.Preparing,
-                    is PublishState.Connecting,
-                    -> NearbyMediaState.PreparingScreen
-                    is PublishState.Publishing,
-                    is PublishState.Stats,
-                    is PublishState.AudioFailed,
-                    -> NearbyMediaState.PublishingScreen
-                    PublishState.Stopping -> NearbyMediaState.StoppingScreen
-                    is PublishState.Failed,
-                    PublishState.Stopped,
-                    -> NearbyMediaStateReducer.stopped()
-                }
-            }
+            nearbyMediaState = NearbyMediaStateReducer.fromPublishStatus(
+                current = nearbyMediaState,
+                state = state,
+                target = snapshot.target,
+            )
         }
     }
 
@@ -716,11 +710,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return localizedResources.getString(resId, *args)
     }
 }
-
-private fun NearbyMediaState.isLocalScreenSession(): Boolean =
-    this == NearbyMediaState.PreparingScreen ||
-        this == NearbyMediaState.PublishingScreen ||
-        this == NearbyMediaState.StoppingScreen
 
 private fun PeerServerState.serviceName(): String? =
     (lifecycle as? PeerListenerState.Listening)?.serviceName

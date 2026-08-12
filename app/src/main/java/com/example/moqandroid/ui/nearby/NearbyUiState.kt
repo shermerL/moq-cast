@@ -2,6 +2,8 @@ package com.example.moqandroid.ui.nearby
 
 import com.example.moqandroid.network.lan.discovery.DiscoveryPhase
 import com.example.moqandroid.network.lan.server.PeerServerState
+import com.example.moqandroid.publish.PublishState
+import com.example.moqandroid.publish.PublishTarget
 
 data class NearbyUiState(
     val phase: DiscoveryPhase,
@@ -22,6 +24,29 @@ sealed interface NearbyMediaState {
 
 /** Keeps local screen publishing and remote screen playback mutually exclusive. */
 object NearbyMediaStateReducer {
+    fun fromPublishStatus(
+        current: NearbyMediaState,
+        state: PublishState,
+        target: PublishTarget?,
+    ): NearbyMediaState {
+        if (target != PublishTarget.Lan) {
+            return if (current.isLocalScreenSession()) NearbyMediaState.ConnectedIdle else current
+        }
+        return when (state) {
+            PublishState.Preparing,
+            is PublishState.Connecting,
+            -> NearbyMediaState.PreparingScreen
+            is PublishState.Publishing,
+            is PublishState.Stats,
+            is PublishState.AudioFailed,
+            -> NearbyMediaState.PublishingScreen
+            PublishState.Stopping -> NearbyMediaState.StoppingScreen
+            is PublishState.Failed,
+            PublishState.Stopped,
+            -> NearbyMediaState.ConnectedIdle
+        }
+    }
+
     fun preparingScreenStarted(current: NearbyMediaState): NearbyMediaState? {
         return NearbyMediaState.PreparingScreen.takeIf { current == NearbyMediaState.ConnectedIdle }
     }
@@ -37,6 +62,11 @@ object NearbyMediaStateReducer {
     }
 
     fun stopped(): NearbyMediaState = NearbyMediaState.ConnectedIdle
+
+    private fun NearbyMediaState.isLocalScreenSession(): Boolean =
+        this == NearbyMediaState.PreparingScreen ||
+            this == NearbyMediaState.PublishingScreen ||
+            this == NearbyMediaState.StoppingScreen
 }
 
 data class NearbyActionAvailability(

@@ -22,8 +22,9 @@ import com.example.moqandroid.network.lan.mesh.LanRuntimeOwner
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishSourceType
-import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishStatusFacade
+import com.example.moqandroid.publish.PublishStatusSnapshot
+import com.example.moqandroid.publish.PublishTarget
 import com.example.moqandroid.publish.audio.AudioPublishConfig
 import com.example.moqandroid.publish.audio.MicrophoneAudioCapture
 import com.example.moqandroid.publish.camera.CameraLensFacing
@@ -55,7 +56,7 @@ import uniffi.moq.MoqOriginProducer
 class PublishForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var publishJob: Job? = null
-    private var publishGeneration = 0
+    private var publishGeneration = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -117,31 +118,40 @@ class PublishForegroundService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         Log.w(LOG_TAG, "publish foreground service timed out type=$fgsType startId=$startId")
-        statusFacade.fail("File publishing exceeded the Android foreground service time limit.")
+        statusFacade.fail(
+            publishGeneration,
+            "File publishing exceeded the Android foreground service time limit.",
+        )
         stopPublishing(updateStopped = false)
         stopSelf(startId)
     }
 
     private fun startPublishing(intent: Intent) {
         cancelPublishJob()
-        val generation = ++publishGeneration
 
         val relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty()
         val broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty()
         val sourceType = intent.publishSourceType()
+        val target = if (intent.getBooleanExtra(EXTRA_LAN_MESH, false)) {
+            PublishTarget.Lan
+        } else {
+            PublishTarget.Relay
+        }
+        val generation = statusFacade.beginPublish(target)
+        publishGeneration = generation
         val lanPublishLease = claimLanPublishLease(intent, sourceType)
         val sharedOrigin = lanPublishLease?.origin()
 
         if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
             lanPublishLease?.close()
-            statusFacade.fail("The LAN mesh publish reservation is no longer available.")
+            statusFacade.fail(generation, "The LAN mesh publish reservation is no longer available.")
             stopSelf()
             return
         }
 
         if (relayUrl.isBlank() || broadcastName.isBlank()) {
             lanPublishLease?.close()
-            statusFacade.fail(getString(R.string.publish_service_missing_args))
+            statusFacade.fail(generation, getString(R.string.publish_service_missing_args))
             stopSelf()
             return
         }
@@ -150,19 +160,23 @@ class PublishForegroundService : Service() {
             try {
                 runCatching {
                     when (sourceType) {
-                        PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName)
-                        PublishSourceType.Screen -> publishScreen(intent, relayUrl, broadcastName, sharedOrigin)
-                        PublishSourceType.File -> publishFile(intent, relayUrl, broadcastName)
+                        PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName, generation)
+                        PublishSourceType.Screen -> publishScreen(
+                            intent,
+                            relayUrl,
+                            broadcastName,
+                            sharedOrigin,
+                            generation,
+                        )
+                        PublishSourceType.File -> publishFile(intent, relayUrl, broadcastName, generation)
                     }
                 }.onFailure { error ->
                     if (error is CancellationException) {
                         Log.i(LOG_TAG, "publish cancelled source=${sourceType.storageValue}: ${error.message}")
-                        if (generation == publishGeneration) statusFacade.markStopped()
+                        statusFacade.markStopped(generation)
                     } else {
                         Log.w(LOG_TAG, "publish failed source=${sourceType.storageValue}", error)
-                        if (generation == publishGeneration) {
-                            statusFacade.fail(error.message ?: error::class.java.name)
-                        }
+                        statusFacade.fail(generation, error.message ?: error::class.java.name)
                     }
                 }
             } finally {
@@ -177,6 +191,7 @@ class PublishForegroundService : Service() {
         relayUrl: String,
         broadcastName: String,
         sharedOrigin: MoqOriginProducer?,
+        generation: Long,
     ) {
         val resultData = intent.projectionResultData()
             ?: error(getString(R.string.screen_publish_service_missing_args))
@@ -207,7 +222,7 @@ class PublishForegroundService : Service() {
                 tlsFingerprints = intent.getStringExtra(EXTRA_TLS_FINGERPRINT)?.let(::listOf).orEmpty(),
                 connectionLabel = intent.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl,
                 sharedOrigin = sharedOrigin,
-                lifecycle = statusFacade.eventSink(),
+                lifecycle = statusFacade.eventSink(generation),
             ).publish(
                 source = ScreenPublishSource(
                     context = this,
@@ -226,7 +241,12 @@ class PublishForegroundService : Service() {
         }
     }
 
-    private suspend fun publishCamera(intent: Intent, relayUrl: String, broadcastName: String) {
+    private suspend fun publishCamera(
+        intent: Intent,
+        relayUrl: String,
+        broadcastName: String,
+        generation: Long,
+    ) {
         val cameraConfig = CameraPublishCapabilityResolver.resolve(
             context = this,
             lensFacing = intent.cameraLensFacing(),
@@ -243,7 +263,7 @@ class PublishForegroundService : Service() {
         }
         MoqPublishSession(
             relayUrl = relayUrl,
-            lifecycle = statusFacade.eventSink(),
+            lifecycle = statusFacade.eventSink(generation),
         ).publish(
             source = CameraPublishSource(this, cameraConfig),
             broadcastName = broadcastName,
@@ -252,7 +272,12 @@ class PublishForegroundService : Service() {
         )
     }
 
-    private suspend fun publishFile(intent: Intent, relayUrl: String, broadcastName: String) {
+    private suspend fun publishFile(
+        intent: Intent,
+        relayUrl: String,
+        broadcastName: String,
+        generation: Long,
+    ) {
         val uri = intent.getStringExtra(EXTRA_FILE_URI)?.let(Uri::parse)
             ?: error("The selected file URI is missing.")
         val file = PublishFileProbe(this).probe(uri)
@@ -261,7 +286,7 @@ class PublishForegroundService : Service() {
         }
         MoqPublishSession(
             relayUrl = relayUrl,
-            lifecycle = statusFacade.eventSink(),
+            lifecycle = statusFacade.eventSink(generation),
         ).publishFile(
             source = CmafFilePublishSource(this, file),
             broadcastName = broadcastName,
@@ -290,10 +315,11 @@ class PublishForegroundService : Service() {
     }
 
     private fun stopPublishing(updateStopped: Boolean) {
+        val generation = publishGeneration
         publishGeneration += 1
-        statusFacade.requestStop()
+        statusFacade.requestStop(generation)
         cancelPublishJob()
-        if (updateStopped) statusFacade.markStopped()
+        if (updateStopped) statusFacade.markStopped(generation)
     }
 
     private fun cancelPublishJob() {
@@ -415,7 +441,7 @@ class PublishForegroundService : Service() {
         private const val NOTIFICATION_ID = 1002
 
         private val statusFacade = PublishStatusFacade()
-        val status: StateFlow<PublishState> = statusFacade.uiState
+        val status: StateFlow<PublishStatusSnapshot> = statusFacade.snapshot
 
         fun startScreen(
             context: Context,
@@ -509,8 +535,8 @@ class PublishForegroundService : Service() {
             startService(context, intent)
         }
 
-        fun prepare() {
-            statusFacade.prepare()
+        fun prepare(target: PublishTarget) {
+            statusFacade.prepare(target)
         }
 
         fun fail(reason: String) {

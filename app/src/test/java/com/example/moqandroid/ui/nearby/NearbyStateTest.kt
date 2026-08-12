@@ -4,6 +4,8 @@ import com.example.moqandroid.network.lan.discovery.DiscoveredPeer
 import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.network.lan.mesh.RemoteScreenBroadcast
 import com.example.moqandroid.network.lan.mesh.ScreenBroadcastAvailability
+import com.example.moqandroid.publish.PublishState
+import com.example.moqandroid.publish.PublishTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,6 +13,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NearbyStateTest {
+    @Test
+    fun activeLanPublishRestoresAfterViewModelRecreation() {
+        val restored = NearbyMediaStateReducer.fromPublishStatus(
+            current = NearbyMediaState.ConnectedIdle,
+            state = PublishState.Publishing(
+                relayUrl = "moqt://192.168.1.20:4443",
+                broadcastName = "moqcast.screen/local",
+                width = 1280,
+                height = 720,
+                bitrate = 4_000_000,
+                frameRate = 30,
+                audioEnabled = false,
+            ),
+            target = PublishTarget.Lan,
+        )
+
+        assertEquals(NearbyMediaState.PublishingScreen, restored)
+    }
+
+    @Test
+    fun activeRelayPublishDoesNotRestoreLanSession() {
+        val restored = NearbyMediaStateReducer.fromPublishStatus(
+            current = NearbyMediaState.ConnectedIdle,
+            state = PublishState.Publishing(
+                relayUrl = "https://relay.example/anon",
+                broadcastName = "screen.hang",
+                width = 1280,
+                height = 720,
+                bitrate = 4_000_000,
+                frameRate = 30,
+                audioEnabled = false,
+            ),
+            target = PublishTarget.Relay,
+        )
+
+        assertEquals(NearbyMediaState.ConnectedIdle, restored)
+    }
+
     @Test
     fun combinesDiscoveryTransportAndScreenState() {
         val peer = DiscoveredPeer(
