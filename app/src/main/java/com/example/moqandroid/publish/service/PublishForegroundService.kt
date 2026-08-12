@@ -17,7 +17,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import com.example.moqandroid.R
-import com.example.moqandroid.network.lan.mesh.LanMeshOriginRegistry
+import com.example.moqandroid.MoqCastApplication
+import com.example.moqandroid.network.lan.mesh.LanRuntimeOwner
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishSourceType
@@ -49,6 +50,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import uniffi.moq.MoqOriginProducer
 
 class PublishForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -127,37 +129,55 @@ class PublishForegroundService : Service() {
         val relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty()
         val broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty()
         val sourceType = intent.publishSourceType()
+        val lanPublishLease = claimLanPublishLease(intent, sourceType)
+        val sharedOrigin = lanPublishLease?.origin()
+
+        if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
+            lanPublishLease?.close()
+            statusFacade.fail("The LAN mesh publish reservation is no longer available.")
+            stopSelf()
+            return
+        }
 
         if (relayUrl.isBlank() || broadcastName.isBlank()) {
+            lanPublishLease?.close()
             statusFacade.fail(getString(R.string.publish_service_missing_args))
             stopSelf()
             return
         }
 
         publishJob = serviceScope.launch {
-            runCatching {
-                when (sourceType) {
-                    PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName)
-                    PublishSourceType.Screen -> publishScreen(intent, relayUrl, broadcastName)
-                    PublishSourceType.File -> publishFile(intent, relayUrl, broadcastName)
-                }
-            }.onFailure { error ->
-                if (error is CancellationException) {
-                    Log.i(LOG_TAG, "publish cancelled source=${sourceType.storageValue}: ${error.message}")
-                    if (generation == publishGeneration) statusFacade.markStopped()
-                } else {
-                    Log.w(LOG_TAG, "publish failed source=${sourceType.storageValue}", error)
-                    if (generation == publishGeneration) {
-                        statusFacade.fail(error.message ?: error::class.java.name)
+            try {
+                runCatching {
+                    when (sourceType) {
+                        PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName)
+                        PublishSourceType.Screen -> publishScreen(intent, relayUrl, broadcastName, sharedOrigin)
+                        PublishSourceType.File -> publishFile(intent, relayUrl, broadcastName)
+                    }
+                }.onFailure { error ->
+                    if (error is CancellationException) {
+                        Log.i(LOG_TAG, "publish cancelled source=${sourceType.storageValue}: ${error.message}")
+                        if (generation == publishGeneration) statusFacade.markStopped()
+                    } else {
+                        Log.w(LOG_TAG, "publish failed source=${sourceType.storageValue}", error)
+                        if (generation == publishGeneration) {
+                            statusFacade.fail(error.message ?: error::class.java.name)
+                        }
                     }
                 }
-            }.also {
+            } finally {
+                lanPublishLease?.close()
                 if (generation == publishGeneration) stopSelf()
             }
         }
     }
 
-    private suspend fun publishScreen(intent: Intent, relayUrl: String, broadcastName: String) {
+    private suspend fun publishScreen(
+        intent: Intent,
+        relayUrl: String,
+        broadcastName: String,
+        sharedOrigin: MoqOriginProducer?,
+    ) {
         val resultData = intent.projectionResultData()
             ?: error(getString(R.string.screen_publish_service_missing_args))
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
@@ -186,11 +206,7 @@ class PublishForegroundService : Service() {
                 relayUrl = relayUrl,
                 tlsFingerprints = intent.getStringExtra(EXTRA_TLS_FINGERPRINT)?.let(::listOf).orEmpty(),
                 connectionLabel = intent.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl,
-                sharedOrigin = if (intent.getBooleanExtra(EXTRA_LAN_MESH, false)) {
-                    LanMeshOriginRegistry.current() ?: error("The LAN mesh is no longer running.")
-                } else {
-                    null
-                },
+                sharedOrigin = sharedOrigin,
                 lifecycle = statusFacade.eventSink(),
             ).publish(
                 source = ScreenPublishSource(
@@ -395,6 +411,7 @@ class PublishForegroundService : Service() {
         private const val EXTRA_FILE_URI = "file_uri"
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val EXTRA_LAN_MESH = "lan_mesh"
+        private const val EXTRA_LAN_PUBLISH_RESERVATION_ID = "lan_publish_reservation_id"
         private const val NOTIFICATION_ID = 1002
 
         private val statusFacade = PublishStatusFacade()
@@ -410,6 +427,7 @@ class PublishForegroundService : Service() {
             resultData: Intent,
             config: ScreenPublishConfig,
             useLanMesh: Boolean = false,
+            lanPublishReservationId: Long? = null,
         ) {
             activeSourceType = PublishSourceType.Screen
             val intent = Intent(context, PublishForegroundService::class.java)
@@ -428,6 +446,7 @@ class PublishForegroundService : Service() {
                 .putExtra(EXTRA_H264_PROFILE, config.video.h264ProfilePreference.storageValue)
                 .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Screen.storageValue)
                 .putExtra(EXTRA_LAN_MESH, useLanMesh)
+            lanPublishReservationId?.let { intent.putExtra(EXTRA_LAN_PUBLISH_RESERVATION_ID, it) }
             startService(context, intent)
         }
 
@@ -500,6 +519,16 @@ class PublishForegroundService : Service() {
 
         @Volatile
         private var activeSourceType = PublishSourceType.Screen
+    }
+
+    private fun claimLanPublishLease(
+        intent: Intent,
+        sourceType: PublishSourceType,
+    ): LanRuntimeOwner.PublishLease? {
+        if (sourceType != PublishSourceType.Screen || !intent.getBooleanExtra(EXTRA_LAN_MESH, false)) return null
+        val reservationId = intent.getLongExtra(EXTRA_LAN_PUBLISH_RESERVATION_ID, 0L)
+        if (reservationId == 0L) return null
+        return (application as MoqCastApplication).lanRuntimeOwner.claimPublish(reservationId)
     }
 
     @Suppress("DEPRECATION")

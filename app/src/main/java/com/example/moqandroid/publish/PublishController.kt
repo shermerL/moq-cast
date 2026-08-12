@@ -161,6 +161,7 @@ class PublishController(private val context: Context) {
                 request.h264ProfilePreference,
             ),
             useLanMesh = request.useLanMesh,
+            lanPublishReservationId = request.lanPublishReservationId,
         )
     }
 
@@ -258,6 +259,7 @@ data class ScreenPublishStartRequest(
     val encoderPolicy: VideoEncoderPolicy,
     val h264ProfilePreference: H264ProfilePreference,
     val useLanMesh: Boolean = false,
+    val lanPublishReservationId: Long? = null,
 )
 
 data class CameraPublishStartRequest(
