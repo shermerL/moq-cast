@@ -75,7 +75,6 @@
     <string name="nearby_fingerprint">Fingerprint</string>
     <string name="nearby_discovered">Discovered</string>
     <string name="nearby_share_screen">Share screen</string>
-    <string name="nearby_stop_sharing">Stop sharing</string>
     <string name="nearby_watch">Watch</string>
     <string name="nearby_screen_available">Screen available</string>
     <string name="nearby_screen_unavailable">No screen</string>
@@ -89,8 +88,15 @@
     <string name="nearby_inbound_connections_note">Inbound sessions are not assigned to individual device rows.</string>
     <string name="nearby_mesh_disabled">Enable LAN mesh in Settings first.</string>
     <string name="nearby_receiver_not_ready">Nearby receiver is not ready yet.</string>
-    <string name="nearby_playback_stopped_for_share">Nearby playback stopped before sharing.</string>
-    <string name="nearby_stop_sharing_first">Stop sharing before watching another screen.</string>
+    <string name="nearby_media_busy">Stop the active Nearby media session first.</string>
+    <string name="nearby_active_session">Active session</string>
+    <string name="nearby_open_session">Open</string>
+    <string name="nearby_stopping">Stopping</string>
+    <string name="nearby_preparing_share">Preparing screen share</string>
+    <string name="nearby_sharing_screen">Sharing this screen</string>
+    <string name="nearby_stopping_share">Stopping screen share</string>
+    <string name="nearby_viewing_device">Watching %1$s</string>
+    <string name="nearby_media_stopped">Nearby media stopped.</string>
     <string name="nearby_receiver_idle">Receiver stopped</string>
     <string name="nearby_receiver_starting">Starting receiver</string>
     <string name="nearby_receiver_ready">Ready to receive</string>

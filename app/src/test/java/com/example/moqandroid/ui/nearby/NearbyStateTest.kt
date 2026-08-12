@@ -84,4 +84,85 @@ class NearbyStateTest {
         )
         assertEquals(NearbyMediaState.ConnectedIdle, NearbyMediaStateReducer.stopped())
     }
+
+    @Test
+    fun mediaLifecycleExposesOneValidActionSetPerPhase() {
+        val idle = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.ConnectedIdle,
+            canReachPeer = true,
+            screenAvailable = true,
+        )
+        assertTrue(idle.canShareScreen)
+        assertTrue(idle.canWatch)
+        assertFalse(idle.canOpenActiveSession)
+        assertFalse(idle.canStop)
+
+        val preparing = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.PreparingScreen,
+            canReachPeer = true,
+            screenAvailable = true,
+        )
+        assertFalse(preparing.canShareScreen)
+        assertFalse(preparing.canWatch)
+        assertFalse(preparing.canOpenActiveSession)
+        assertTrue(preparing.canStop)
+
+        val publishing = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.PublishingScreen,
+            canReachPeer = true,
+            screenAvailable = true,
+        )
+        assertFalse(publishing.canShareScreen)
+        assertFalse(publishing.canWatch)
+        assertFalse(publishing.canOpenActiveSession)
+        assertTrue(publishing.canStop)
+
+        val viewing = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.ViewingRemote("peer-a"),
+            canReachPeer = true,
+            screenAvailable = true,
+        )
+        assertFalse(viewing.canShareScreen)
+        assertFalse(viewing.canWatch)
+        assertTrue(viewing.canOpenActiveSession)
+        assertTrue(viewing.canStop)
+
+        val stopping = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.StoppingScreen,
+            canReachPeer = true,
+            screenAvailable = true,
+        )
+        assertFalse(stopping.canShareScreen)
+        assertFalse(stopping.canWatch)
+        assertFalse(stopping.canOpenActiveSession)
+        assertFalse(stopping.canStop)
+    }
+
+    @Test
+    fun preparingAndStoppingKeepMeshStateIndependentFromMedia() {
+        assertEquals(
+            NearbyMediaState.PreparingScreen,
+            NearbyMediaStateReducer.preparingScreenStarted(NearbyMediaState.ConnectedIdle),
+        )
+        assertEquals(
+            NearbyMediaState.StoppingScreen,
+            NearbyMediaStateReducer.stopping(NearbyMediaState.PreparingScreen),
+        )
+        assertNull(NearbyMediaStateReducer.preparingScreenStarted(NearbyMediaState.PreparingScreen))
+        assertNull(NearbyMediaStateReducer.stopping(NearbyMediaState.StoppingScreen))
+        assertNull(NearbyMediaStateReducer.viewingStarted(NearbyMediaState.PreparingScreen, "peer-a"))
+        assertEquals(NearbyMediaState.ConnectedIdle, NearbyMediaStateReducer.stopped())
+    }
+
+    @Test
+    fun unavailableTransportDisablesGlobalShareButNotDirectoryState() {
+        val actions = NearbyActionPolicy.project(
+            mediaState = NearbyMediaState.ConnectedIdle,
+            canReachPeer = false,
+            screenAvailable = true,
+        )
+
+        assertFalse(actions.canShareScreen)
+        assertTrue(actions.canWatch)
+    }
 }

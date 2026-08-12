@@ -178,8 +178,11 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                             onStopDiscovery = viewModel::stopNearbyDiscovery,
                             onRefresh = viewModel::refreshNearbyPeers,
                             onShareScreen = ::requestNearbyScreenPublish,
-                            onStopSharing = {
-                                viewModel.stopPublish(localizedText(R.string.publish_stopped_by_user))
+                            onOpenActiveSession = {
+                                viewModel.activeNearbyPlayback()?.let(::openPlayerUi)
+                            },
+                            onStopMedia = {
+                                viewModel.stopNearbyMedia(localizedText(R.string.nearby_media_stopped))
                             },
                             onWatch = { peer ->
                                 viewModel.prepareNearbyPlayback(peer)?.let(::openPlayerUi)

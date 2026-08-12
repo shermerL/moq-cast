@@ -185,7 +185,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        currentScreen = if (relayConfig.relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
+        currentScreen = when {
+            initialLanMeshEnabled -> AppScreen.Nearby
+            relayConfig.relayUrl.isBlank() -> AppScreen.Config
+            else -> AppScreen.Home
+        }
         if (initialLanMeshEnabled) lanMesh.start()
         viewModelScope.launch {
             publishController.status.collect { state ->
@@ -415,7 +419,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ),
         )
         if (useLanMesh) {
-            nearbyMediaState = NearbyMediaStateReducer.publishingStarted()
             nearbyScreenPublishPending = false
         }
     }
@@ -427,9 +430,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             updatePublishHomeStatus(text(R.string.nearby_mesh_disabled))
             return PublishRequest.None
         }
-        if (nearbyMediaState is NearbyMediaState.ViewingRemote) {
-            stopPlayback(text(R.string.nearby_playback_stopped_for_share))
-            playerBroadcast = null
+        if (nearbyMediaState != NearbyMediaState.ConnectedIdle) {
+            updatePublishHomeStatus(text(R.string.nearby_media_busy))
+            return PublishRequest.None
         }
         val localPeerId = lanMesh.localPeerId()
         if (localPeerId == null) {
@@ -459,6 +462,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (preparation.request == PublishRequest.None) {
             nearbyScreenPublishPending = false
         } else {
+            nearbyMediaState = requireNotNull(NearbyMediaStateReducer.preparingScreenStarted(nearbyMediaState))
             lanMesh.start()
         }
         return preparation.request
@@ -466,6 +470,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelNearbyScreenPublish(message: String) {
         nearbyScreenPublishPending = false
+        nearbyMediaState = NearbyMediaStateReducer.stopped()
         failPublish(message)
         if (currentScreen == AppScreen.Nearby) {
             lanMesh.start()
@@ -473,8 +478,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun prepareNearbyPlayback(item: PeerListItem): String? {
-        if (nearbyMediaState == NearbyMediaState.PublishingScreen) {
-            updateSubscribeStatus(text(R.string.nearby_stop_sharing_first))
+        if (nearbyMediaState != NearbyMediaState.ConnectedIdle) {
+            updateSubscribeStatus(text(R.string.nearby_media_busy))
             return null
         }
         val path = item.screenBroadcastPath ?: return null
@@ -486,6 +491,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         playbackTarget = PlaybackTarget.Nearby
         nearbyMediaState = NearbyMediaStateReducer.viewingStarted(nearbyMediaState, item.peerId) ?: return null
         return path
+    }
+
+    fun activeNearbyPlayback(): String? {
+        return playerBroadcast.takeIf { nearbyMediaState is NearbyMediaState.ViewingRemote }
+    }
+
+    fun stopNearbyMedia(message: String) {
+        when (nearbyMediaState) {
+            NearbyMediaState.PreparingScreen,
+            NearbyMediaState.PublishingScreen,
+            -> stopPublish(message)
+            NearbyMediaState.StoppingScreen -> Unit
+            is NearbyMediaState.ViewingRemote -> {
+                stopPlayback(message)
+                playerBroadcast = null
+            }
+            NearbyMediaState.ConnectedIdle -> Unit
+        }
     }
 
     fun startCameraPublish() {
@@ -556,12 +579,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopPublish(message: String) {
+        nearbyScreenPublishPending = false
+        NearbyMediaStateReducer.stopping(nearbyMediaState)?.let { nearbyMediaState = it }
         publishController.stop()
-        publishPanelMode = PublishPanelMode.Ready
         publishStatusMessage = message
-        if (nearbyMediaState == NearbyMediaState.PublishingScreen) {
-            nearbyMediaState = NearbyMediaStateReducer.stopped()
-        }
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
 
@@ -620,11 +641,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             publishPanelMode = state.toPublishPanelMode()
             publishStatusMessage = message
-            if (
-                nearbyMediaState == NearbyMediaState.PublishingScreen &&
-                (state is PublishState.Stopped || state is PublishState.Failed)
-            ) {
-                nearbyMediaState = NearbyMediaStateReducer.stopped()
+            if (nearbyMediaState.isLocalScreenSession() || nearbyScreenPublishPending) {
+                nearbyMediaState = when (state) {
+                    PublishState.Preparing,
+                    is PublishState.Connecting,
+                    -> NearbyMediaState.PreparingScreen
+                    is PublishState.Publishing,
+                    is PublishState.Stats,
+                    is PublishState.AudioFailed,
+                    -> NearbyMediaState.PublishingScreen
+                    PublishState.Stopping -> NearbyMediaState.StoppingScreen
+                    is PublishState.Failed,
+                    PublishState.Stopped,
+                    -> NearbyMediaStateReducer.stopped()
+                }
             }
         }
     }
@@ -649,6 +679,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return localizedResources.getString(resId, *args)
     }
 }
+
+private fun NearbyMediaState.isLocalScreenSession(): Boolean =
+    this == NearbyMediaState.PreparingScreen ||
+        this == NearbyMediaState.PublishingScreen ||
+        this == NearbyMediaState.StoppingScreen
 
 private fun PeerServerState.serviceName(): String? =
     (lifecycle as? PeerListenerState.Listening)?.serviceName

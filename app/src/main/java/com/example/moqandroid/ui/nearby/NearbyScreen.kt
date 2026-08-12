@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -81,6 +82,7 @@ fun NearbyScreen(
 ) {
     val backFocusRequester = remember { FocusRequester() }
     val shareFocusRequester = remember { FocusRequester() }
+    val sessionFocusRequester = remember { FocusRequester() }
     var focusedTarget by remember { mutableStateOf<NearbyFocusTarget?>(null) }
 
     BackHandler(onBack = actions.onBack)
@@ -107,10 +109,15 @@ fun NearbyScreen(
     }
     LaunchedEffect(state.peers, state.mediaState, state.canShareScreen, focusedTarget) {
         val target = focusedTarget as? NearbyFocusTarget.Watch ?: return@LaunchedEffect
-        val canKeepFocus = state.mediaState != NearbyMediaState.PublishingScreen &&
-            state.peers.any { it.peerId == target.peerId && it.canWatch }
+        val canKeepFocus = state.peers.any { peer ->
+            peer.peerId == target.peerId &&
+                NearbyActionPolicy.project(state.mediaState, state.canShareScreen, peer.canWatch).canWatch
+        }
         if (!canKeepFocus) {
-            if (state.canShareScreen || state.mediaState == NearbyMediaState.PublishingScreen) {
+            val globalActions = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
+            if (globalActions.canStop) {
+                sessionFocusRequester.requestFocus()
+            } else if (globalActions.canShareScreen) {
                 shareFocusRequester.requestFocus()
             } else {
                 backFocusRequester.requestFocus()
@@ -118,51 +125,69 @@ fun NearbyScreen(
         }
     }
     MoqAppTheme {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(WorkspaceBackground)
                 .topSystemInset()
-                .bottomSystemInset()
-                .padding(horizontal = 20.dp),
+                .bottomSystemInset(),
         ) {
-            NearbyTopBar(
-                actions = actions,
-                backFocusRequester = backFocusRequester,
-                onFocused = { focusedTarget = NearbyFocusTarget.Navigation },
-            )
-            DiscoverySummary(state)
-            Spacer(Modifier.height(12.dp))
-            ScreenShareAction(
-                state = state,
-                actions = actions,
-                focusRequester = shareFocusRequester,
-                onFocused = { focusedTarget = NearbyFocusTarget.Share },
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                text = stringResource(R.string.nearby_devices),
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(10.dp))
-            if (state.peers.isEmpty()) {
-                EmptyPeerList(state.phase, Modifier.weight(1f))
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(state.peers, key = PeerListItem::peerId) { peer ->
-                        PeerRow(
-                            peer = peer,
-                            watchEnabled = state.mediaState != NearbyMediaState.PublishingScreen,
-                            onWatch = actions.onWatch,
-                            onWatchFocused = {
-                                focusedTarget = NearbyFocusTarget.Watch(peer.peerId)
-                            },
-                        )
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 760.dp)
+                    .fillMaxSize()
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 20.dp),
+            ) {
+                NearbyTopBar(
+                    actions = actions,
+                    backFocusRequester = backFocusRequester,
+                    onFocused = { focusedTarget = NearbyFocusTarget.Navigation },
+                )
+                DiscoverySummary(state)
+                Spacer(Modifier.height(12.dp))
+                ActiveSessionBar(
+                    state = state,
+                    actions = actions,
+                    focusRequester = sessionFocusRequester,
+                    onFocused = { focusedTarget = NearbyFocusTarget.ActiveSession },
+                )
+                if (state.mediaState != NearbyMediaState.ConnectedIdle) Spacer(Modifier.height(12.dp))
+                ScreenShareAction(
+                    state = state,
+                    actions = actions,
+                    focusRequester = shareFocusRequester,
+                    onFocused = { focusedTarget = NearbyFocusTarget.Share },
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.nearby_devices),
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(10.dp))
+                if (state.peers.isEmpty()) {
+                    EmptyPeerList(state.phase, Modifier.weight(1f))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(state.peers, key = PeerListItem::peerId) { peer ->
+                            PeerRow(
+                                peer = peer,
+                                watchEnabled = NearbyActionPolicy.project(
+                                    state.mediaState,
+                                    state.canShareScreen,
+                                    peer.canWatch,
+                                ).canWatch,
+                                onWatch = actions.onWatch,
+                                onWatchFocused = {
+                                    focusedTarget = NearbyFocusTarget.Watch(peer.peerId)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -225,17 +250,17 @@ private fun NearbyTopBar(
 private fun DiscoverySummary(state: NearbyUiState) {
     Surface(
         color = SurfaceColor,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, BorderColor),
         tonalElevation = 0.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RadarIndicator(scanning = state.phase == DiscoveryPhase.Scanning || state.phase == DiscoveryPhase.Starting)
-            Spacer(Modifier.size(16.dp))
+            Spacer(Modifier.size(12.dp))
             Column {
                 Text(
                     text = state.statusText(),
@@ -285,6 +310,7 @@ private fun ScreenShareAction(
     onFocused: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val availability = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
     val modifier = Modifier
         .fillMaxWidth()
         .height(48.dp)
@@ -296,21 +322,83 @@ private fun ScreenShareAction(
         .then(
             if (focused) Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(24.dp)) else Modifier,
         )
-    when (state.mediaState) {
-        NearbyMediaState.PublishingScreen -> OutlinedButton(
-            onClick = actions.onStopSharing,
-            modifier = modifier,
+    Button(
+        onClick = actions.onShareScreen,
+        enabled = availability.canShareScreen,
+        modifier = modifier,
+    ) {
+        Text(stringResource(R.string.nearby_share_screen))
+    }
+}
+
+@Composable
+private fun ActiveSessionBar(
+    state: NearbyUiState,
+    actions: NearbyActions,
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
+) {
+    if (state.mediaState == NearbyMediaState.ConnectedIdle) return
+
+    val availability = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
+    var primaryFocused by remember { mutableStateOf(false) }
+    Surface(
+        color = SurfaceMuted,
+        shape = RoundedCornerShape(8.dp),
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(stringResource(R.string.nearby_stop_sharing))
-        }
-        is NearbyMediaState.ViewingRemote,
-        NearbyMediaState.ConnectedIdle,
-        -> Button(
-            onClick = actions.onShareScreen,
-            enabled = state.canShareScreen,
-            modifier = modifier,
-        ) {
-            Text(stringResource(R.string.nearby_share_screen))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.nearby_active_session),
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = state.mediaState.activeSessionText(),
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (availability.canOpenActiveSession) {
+                OutlinedButton(
+                    onClick = actions.onOpenActiveSession,
+                    modifier = Modifier.height(40.dp),
+                ) {
+                    Text(stringResource(R.string.nearby_open_session))
+                }
+            }
+            OutlinedButton(
+                onClick = actions.onStopMedia,
+                enabled = availability.canStop,
+                modifier = Modifier
+                    .height(40.dp)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged {
+                        primaryFocused = it.isFocused
+                        if (it.isFocused) onFocused()
+                    }
+                    .then(
+                        if (primaryFocused) Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(20.dp)) else Modifier,
+                    ),
+            ) {
+                Text(
+                    if (state.mediaState == NearbyMediaState.StoppingScreen) {
+                        stringResource(R.string.nearby_stopping)
+                    } else {
+                        stringResource(R.string.stop)
+                    },
+                )
+            }
         }
     }
 }
@@ -328,7 +416,7 @@ private fun RadarIndicator(scanning: Boolean) {
         label = "nearby-radar-angle",
     )
 
-    Canvas(Modifier.size(64.dp)) {
+    Canvas(Modifier.size(40.dp)) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val strokeWidth = 1.5.dp.toPx()
         listOf(0.32f, 0.62f, 0.92f).forEach { scale ->
@@ -382,21 +470,15 @@ private fun PeerRow(
     var watchFocused by remember(peer.peerId) { mutableStateOf(false) }
     Surface(
         color = SurfaceColor,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         border = BorderStroke(if (watchFocused) 2.dp else 1.dp, if (watchFocused) PrimaryColor else BorderColor),
         tonalElevation = 0.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(color = SurfaceMuted, shape = CircleShape, modifier = Modifier.size(42.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("M", color = PrimaryColor, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = peer.displayName,
@@ -406,53 +488,43 @@ private fun PeerRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    text = peer.endpoint,
+                    text = "${peer.connectionStatusText()} · ${peer.screenStatusText()}",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-            Column(horizontalAlignment = Alignment.End) {
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = peer.connectionStatusText(),
-                    color = if (peer.connectionState == PeerConnectionState.Connected) PrimaryColor else TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = if (peer.canWatch) {
-                        stringResource(R.string.nearby_screen_available)
-                    } else {
-                        stringResource(R.string.nearby_screen_unavailable)
-                    },
+                    text = peer.endpoint,
                     color = TextSecondary,
                     fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (peer.canWatch) {
-                    Spacer(Modifier.height(6.dp))
-                    Button(
-                        onClick = { onWatch(peer) },
-                        enabled = watchEnabled,
-                        modifier = Modifier
-                            .height(40.dp)
-                            .onFocusChanged {
-                                watchFocused = it.isFocused
-                                if (it.isFocused) onWatchFocused()
-                            }
-                            .then(
-                                if (watchFocused) {
-                                    Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(20.dp))
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                    ) {
-                        Text(stringResource(R.string.nearby_watch))
-                    }
+            }
+            if (peer.canWatch) {
+                Spacer(Modifier.size(12.dp))
+                Button(
+                    onClick = { onWatch(peer) },
+                    enabled = watchEnabled,
+                    modifier = Modifier
+                        .height(40.dp)
+                        .onFocusChanged {
+                            watchFocused = it.isFocused
+                            if (it.isFocused) onWatchFocused()
+                        }
+                        .then(
+                            if (watchFocused) {
+                                Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(20.dp))
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) {
+                    Text(stringResource(R.string.nearby_watch))
                 }
             }
         }
@@ -462,6 +534,7 @@ private fun PeerRow(
 private sealed interface NearbyFocusTarget {
     data object Navigation : NearbyFocusTarget
     data object Share : NearbyFocusTarget
+    data object ActiveSession : NearbyFocusTarget
     data class Watch(val peerId: String) : NearbyFocusTarget
 }
 
@@ -484,6 +557,22 @@ private fun PeerListItem.connectionStatusText(): String = when (val state = conn
     PeerConnectionState.Reconnecting -> stringResource(R.string.nearby_reconnecting)
     is PeerConnectionState.Failed -> stringResource(R.string.nearby_connection_failed, state.reason)
     PeerConnectionState.Lost -> stringResource(R.string.nearby_lost)
+}
+
+@Composable
+private fun PeerListItem.screenStatusText(): String = if (canWatch) {
+    stringResource(R.string.nearby_screen_available)
+} else {
+    stringResource(R.string.nearby_screen_unavailable)
+}
+
+@Composable
+private fun NearbyMediaState.activeSessionText(): String = when (this) {
+    NearbyMediaState.ConnectedIdle -> ""
+    NearbyMediaState.PreparingScreen -> stringResource(R.string.nearby_preparing_share)
+    NearbyMediaState.PublishingScreen -> stringResource(R.string.nearby_sharing_screen)
+    NearbyMediaState.StoppingScreen -> stringResource(R.string.nearby_stopping_share)
+    is NearbyMediaState.ViewingRemote -> stringResource(R.string.nearby_viewing_device, publisherId)
 }
 
 @Composable

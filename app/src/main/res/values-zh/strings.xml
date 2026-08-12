@@ -75,7 +75,6 @@
     <string name="nearby_fingerprint">指纹</string>
     <string name="nearby_discovered">已发现</string>
     <string name="nearby_share_screen">共享屏幕</string>
-    <string name="nearby_stop_sharing">停止共享</string>
     <string name="nearby_watch">观看</string>
     <string name="nearby_screen_available">屏幕可用</string>
     <string name="nearby_screen_unavailable">未共享屏幕</string>
@@ -89,8 +88,15 @@
     <string name="nearby_inbound_connections_note">入站会话独立统计，当前不会映射到具体设备行。</string>
     <string name="nearby_mesh_disabled">请先在设置中开启局域网 Mesh。</string>
     <string name="nearby_receiver_not_ready">附近接收端尚未就绪。</string>
-    <string name="nearby_playback_stopped_for_share">共享前已停止附近播放。</string>
-    <string name="nearby_stop_sharing_first">请先停止共享，再观看其他屏幕。</string>
+    <string name="nearby_media_busy">请先停止当前附近媒体会话。</string>
+    <string name="nearby_active_session">当前会话</string>
+    <string name="nearby_open_session">打开</string>
+    <string name="nearby_stopping">正在停止</string>
+    <string name="nearby_preparing_share">正在准备屏幕共享</string>
+    <string name="nearby_sharing_screen">正在共享本机屏幕</string>
+    <string name="nearby_stopping_share">正在停止屏幕共享</string>
+    <string name="nearby_viewing_device">正在观看 %1$s</string>
+    <string name="nearby_media_stopped">附近媒体已停止。</string>
     <string name="nearby_receiver_idle">接收端已停止</string>
     <string name="nearby_receiver_starting">正在启动接收端</string>
     <string name="nearby_receiver_ready">可以接收附近屏幕</string>
