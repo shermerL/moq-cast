@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -215,6 +216,19 @@ private fun SettingsPanel(
             }
 
             MoqSettingSection(title = stringResource(R.string.connection_section)) {
+                ToggleSettingRow(
+                    label = stringResource(R.string.lan_mesh_enabled),
+                    note = stringResource(R.string.lan_mesh_enabled_note),
+                    checked = state.lanMeshEnabled,
+                    onCheckedChange = actions.onLanMeshEnabledChange,
+                )
+                Spacer(Modifier.height(18.dp))
+                NavigationSettingRow(
+                    label = stringResource(R.string.nearby_title),
+                    note = stringResource(R.string.nearby_settings_note),
+                    onClick = actions.onOpenNearby,
+                )
+                Spacer(Modifier.height(18.dp))
                 RelayUrlSettingRow(
                     value = state.relayUrl,
                     onValueChange = actions.onRelayUrlChange,
@@ -233,6 +247,29 @@ private fun SettingsPanel(
         }
         Spacer(Modifier.height(12.dp))
         PrimaryAction(stringResource(R.string.save), actions.onSave)
+    }
+}
+
+@Composable
+private fun NavigationSettingRow(
+    label: String,
+    note: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = SurfaceColor,
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        MoqInfoRow(label = label, note = note) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = label,
+                tint = TextSecondary,
+            )
+        }
     }
 }
 

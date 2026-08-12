@@ -17,6 +17,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +26,7 @@ import com.example.moqandroid.config.withAppLanguage
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.playback.PlaybackLayoutCoordinator
 import com.example.moqandroid.publish.PublishRequest
+import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.ui.PlayerScreen
 import com.example.moqandroid.ui.app.FirstRunConfig
 import com.example.moqandroid.ui.app.MainTabs
@@ -37,11 +40,16 @@ import com.example.moqandroid.ui.app.SettingsActions
 import com.example.moqandroid.ui.app.SettingsUiState
 import com.example.moqandroid.ui.app.SubscribePanelActions
 import com.example.moqandroid.ui.app.SubscribePanelState
+import com.example.moqandroid.ui.nearby.NearbyActions
+import com.example.moqandroid.ui.nearby.NearbyMediaState
+import com.example.moqandroid.ui.nearby.NearbyScreen
+import com.example.moqandroid.ui.nearby.NearbyUiState
 
 class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     private lateinit var projectionManager: MediaProjectionManager
     private lateinit var viewModel: AppViewModel
     private var playerScreen: PlayerScreen? = null
+    private var pendingNearbyScreenPublish = false
     private val playbackLayoutCoordinator = PlaybackLayoutCoordinator(
         view = { playerScreen },
         applyOrientation = ::applyPlaybackOrientation,
@@ -69,6 +77,9 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         setContent {
             val language = viewModel.settingsLanguage
             val localizedContext = remember(language) { this.withAppLanguage(language) }
+            val nearbyDiscoveryState by viewModel.nearbyDiscoveryState.collectAsState()
+            val nearbyServerState by viewModel.nearbyServerState.collectAsState()
+            val nearbyPeerItems by viewModel.nearbyPeerItems.collectAsState()
             CompositionLocalProvider(LocalContext provides localizedContext) {
                 when (viewModel.currentScreen) {
                     AppScreen.Config -> FirstRunConfig(
@@ -112,6 +123,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 h264ProfilePreference = viewModel.settingsH264ProfilePreference,
                                 h264ProfileOptions = viewModel.h264ProfileOptions,
                                 showPlaybackStats = viewModel.settingsShowPlaybackStats,
+                                lanMeshEnabled = viewModel.settingsLanMeshEnabled,
                             ),
                         ),
                         actions = MainTabsActions(
@@ -140,10 +152,38 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
                                 onH264ProfilePreferenceChange = viewModel::updateSettingsH264ProfilePreference,
                                 onShowPlaybackStatsChange = viewModel::updateSettingsShowPlaybackStats,
+                                onLanMeshEnabledChange = viewModel::updateSettingsLanMeshEnabled,
+                                onOpenNearby = viewModel::showNearbyUi,
                                 onSave = {
                                     if (viewModel.saveSettingsFromInput()) exitFullscreen()
                                 },
                             ),
+                        ),
+                    )
+
+                    AppScreen.Nearby -> NearbyScreen(
+                        state = NearbyUiState(
+                            phase = nearbyDiscoveryState.phase,
+                            peers = nearbyPeerItems,
+                            errorCode = nearbyDiscoveryState.errorCode,
+                            serverState = nearbyServerState,
+                            mediaState = viewModel.nearbyMediaState,
+                            canShareScreen = nearbyPeerItems.any {
+                                it.connectionState == PeerConnectionState.Connected
+                            } || nearbyServerState.activeSessionCount > 0,
+                        ),
+                        actions = NearbyActions(
+                            onBack = viewModel::showMainUi,
+                            onStartDiscovery = viewModel::startNearbyDiscovery,
+                            onStopDiscovery = viewModel::stopNearbyDiscovery,
+                            onRefresh = viewModel::refreshNearbyPeers,
+                            onShareScreen = ::requestNearbyScreenPublish,
+                            onStopSharing = {
+                                viewModel.stopPublish(localizedText(R.string.publish_stopped_by_user))
+                            },
+                            onWatch = { peer ->
+                                viewModel.prepareNearbyPlayback(peer)?.let(::openPlayerUi)
+                            },
                         ),
                     )
                 }
@@ -152,13 +192,27 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     }
 
     private fun requestPublish() {
-        when (
+        pendingNearbyScreenPublish = false
+        handlePublishRequest(
             viewModel.preparePublish(
                 hasCameraPermission = hasCameraPermission(),
                 hasRecordAudioPermission = hasRecordAudioPermission(),
                 hasNotificationPermission = hasNotificationPermission(),
-            )
-        ) {
+            ),
+        )
+    }
+
+    private fun requestNearbyScreenPublish() {
+        pendingNearbyScreenPublish = true
+        val request = viewModel.prepareNearbyScreenPublish(
+            hasNotificationPermission = hasNotificationPermission(),
+        )
+        if (request == PublishRequest.None) pendingNearbyScreenPublish = false
+        handlePublishRequest(request)
+    }
+
+    private fun handlePublishRequest(request: PublishRequest) {
+        when (request) {
             PublishRequest.None -> Unit
             PublishRequest.RequestCamera -> requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA)
             PublishRequest.RequestRecordAudio -> requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
@@ -180,14 +234,19 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
             REQUEST_CAMERA,
             -> {
                 if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    requestPublish()
+                    if (pendingNearbyScreenPublish) requestNearbyScreenPublish() else requestPublish()
                 } else {
                     val message = when (requestCode) {
                         REQUEST_CAMERA -> localizedText(R.string.camera_permission_denied)
                         REQUEST_RECORD_AUDIO -> localizedText(R.string.audio_permission_denied)
                         else -> localizedText(R.string.screen_capture_permission_denied)
                     }
-                    viewModel.failPublish(message)
+                    if (pendingNearbyScreenPublish) {
+                        viewModel.cancelNearbyScreenPublish(message)
+                        pendingNearbyScreenPublish = false
+                    } else {
+                        viewModel.failPublish(message)
+                    }
                 }
             }
         }
@@ -199,15 +258,25 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         if (requestCode != REQUEST_SCREEN_CAPTURE) return
 
         if (resultCode != RESULT_OK || data == null) {
-            viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
+            if (pendingNearbyScreenPublish) {
+                viewModel.cancelNearbyScreenPublish(localizedText(R.string.screen_capture_permission_denied))
+            } else {
+                viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
+            }
+            pendingNearbyScreenPublish = false
             return
         }
 
         viewModel.startScreenPublish(resultCode, data, resources.displayMetrics)
+        pendingNearbyScreenPublish = false
     }
 
     private fun showPlayerUi() {
         val nextBroadcast = viewModel.prepareSubscribe() ?: return
+        openPlayerUi(nextBroadcast)
+    }
+
+    private fun openPlayerUi(nextBroadcast: String) {
         enterFullscreen()
 
         playerScreen?.release()
@@ -267,7 +336,11 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK && viewModel.playerBroadcast != null) {
-            viewModel.showMainUi()
+            if (viewModel.nearbyMediaState is NearbyMediaState.ViewingRemote) {
+                viewModel.showNearbyUi()
+            } else {
+                viewModel.showMainUi()
+            }
             playerScreen?.release()
             playerScreen = null
             playbackLayoutCoordinator.reset()

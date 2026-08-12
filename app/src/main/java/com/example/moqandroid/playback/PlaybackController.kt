@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import uniffi.moq.MoqOriginConsumer
 
 class PlaybackController(
     private val scope: CoroutineScope,
@@ -23,16 +24,40 @@ class PlaybackController(
         broadcastName: String,
         onPlayerState: (PlayerState, String) -> Unit,
     ) {
+        startInternal(surface, broadcastName, onPlayerState) { playback ->
+            playback.playRelay(surface, relayUrl, broadcastName, CodecPreference.Auto)
+        }
+    }
+
+    fun startPeer(
+        surface: Surface,
+        originConsumer: MoqOriginConsumer,
+        peerName: String,
+        broadcastName: String,
+        onPlayerState: (PlayerState, String) -> Unit,
+    ) {
+        startInternal(surface, broadcastName, onPlayerState) { playback ->
+            originConsumer.use {
+                playback.playOrigin(it, peerName, surface, broadcastName, CodecPreference.Auto)
+            }
+        }
+    }
+
+    private fun startInternal(
+        surface: Surface,
+        broadcastName: String,
+        onPlayerState: (PlayerState, String) -> Unit,
+        play: suspend (MoqPlaybackSession) -> Unit,
+    ) {
         playbackJob?.cancel()
         val sessionId = ++playbackSessionId
         playbackJob = scope.launch {
             val playback = MoqPlaybackSession(
-                relayUrl = relayUrl,
                 logTag = logTag,
                 status = { state -> updatePlayerStatus(state, broadcastName, sessionId, onPlayerState) },
             )
             runCatching {
-                playback.play(surface, broadcastName, CodecPreference.Auto)
+                play(playback)
                 updatePlayerStatus(PlayerState.Disconnected, broadcastName, sessionId, onPlayerState)
             }.onFailure { error ->
                 Log.w(logTag, "playback failed", error)
@@ -76,4 +101,3 @@ class PlaybackController(
         }
     }
 }
-

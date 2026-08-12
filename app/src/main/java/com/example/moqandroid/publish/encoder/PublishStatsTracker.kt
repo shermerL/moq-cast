@@ -4,7 +4,7 @@ import android.os.SystemClock
 import com.example.moqandroid.publish.PublisherEvent
 
 class PublishStatsTracker(
-    private val relayUrl: String,
+    private val connectionLabel: String,
     private val broadcastName: String,
 ) {
     private var frames = 0
@@ -23,7 +23,7 @@ class PublishStatsTracker(
 
         val seconds = elapsedMs / 1_000.0
         val kbps = ((bytes - lastBytes) * 8.0 / 1_000.0) / seconds
-        emit(PublisherEvent.StatsUpdated(relayUrl, broadcastName, frames - lastFrames, bytes, kbps))
+        emit(PublisherEvent.StatsUpdated(connectionLabel, broadcastName, frames - lastFrames, bytes, kbps))
 
         lastUpdateMs = now
         lastFrames = frames

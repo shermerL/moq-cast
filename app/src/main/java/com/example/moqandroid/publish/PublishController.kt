@@ -148,7 +148,9 @@ class PublishController(private val context: Context) {
     fun startScreen(request: ScreenPublishStartRequest) {
         PublishForegroundService.startScreen(
             context = context,
-            relayUrl = request.relayConfig.relayUrl,
+            relayUrl = request.endpointUrl,
+            tlsFingerprint = request.tlsFingerprint,
+            connectionLabel = request.connectionLabel,
             broadcastName = request.broadcastName,
             resultCode = request.resultCode,
             resultData = request.resultData,
@@ -158,6 +160,7 @@ class PublishController(private val context: Context) {
                 request.encoderPolicy,
                 request.h264ProfilePreference,
             ),
+            useLanMesh = request.useLanMesh,
         )
     }
 
@@ -244,7 +247,9 @@ data class PublishPermissions(
 )
 
 data class ScreenPublishStartRequest(
-    val relayConfig: RelayConfig,
+    val endpointUrl: String,
+    val tlsFingerprint: String? = null,
+    val connectionLabel: String = endpointUrl,
     val broadcastName: String,
     val resultCode: Int,
     val resultData: Intent,
@@ -252,6 +257,7 @@ data class ScreenPublishStartRequest(
     val includeSystemAudio: Boolean,
     val encoderPolicy: VideoEncoderPolicy,
     val h264ProfilePreference: H264ProfilePreference,
+    val useLanMesh: Boolean = false,
 )
 
 data class CameraPublishStartRequest(

@@ -4,12 +4,12 @@ import android.view.Surface
 import com.example.moqandroid.catalog.CodecPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.moq.MoqOriginConsumer
 import uniffi.moq.MoqClient
 import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
 
 class MoqPlaybackSession(
-    private val relayUrl: String,
     private val logTag: String,
     private val status: (PlayerState) -> Unit,
 ) {
@@ -17,8 +17,9 @@ class MoqPlaybackSession(
     private val trackSelector = PlaybackTrackSelector(logTag)
     private val pipeline = PlaybackPipeline(logTag, status)
 
-    suspend fun play(
+    suspend fun playRelay(
         surface: Surface,
+        relayUrl: String,
         broadcastName: String,
         codecPreference: CodecPreference,
     ) = withContext(Dispatchers.IO) {
@@ -29,22 +30,43 @@ class MoqPlaybackSession(
                 client.setConsume(originProducer)
 
                 client.connect(relayUrl).use { session ->
-                    status(PlayerState.WaitingBroadcast)
-
-                    val originConsumer = originProducer.consume()
-                    val broadcast = originConsumer.announcedBroadcast(broadcastName).available()
-
-                    status(PlayerState.ReadingCatalog)
-                    broadcast.subscribeCatalog().use { catalogConsumer ->
-                        val catalog = catalogReader.readFirst(catalogConsumer, broadcastName)
-                        val trackInfo = trackSelector.select(catalog, broadcastName, codecPreference)
-
-                        try {
-                            pipeline.play(broadcast, surface, trackInfo, catalogConsumer)
-                        } finally {
-                            session.shutdown()
+                    try {
+                        originProducer.consume().use { originConsumer ->
+                            playBroadcast(originConsumer, surface, broadcastName, codecPreference)
                         }
+                    } finally {
+                        session.shutdown()
                     }
+                }
+            }
+        }
+    }
+
+    suspend fun playOrigin(
+        originConsumer: MoqOriginConsumer,
+        label: String,
+        surface: Surface,
+        broadcastName: String,
+        codecPreference: CodecPreference,
+    ) = withContext(Dispatchers.IO) {
+        status(PlayerState.Connecting(label))
+        playBroadcast(originConsumer, surface, broadcastName, codecPreference)
+    }
+
+    private suspend fun playBroadcast(
+        originConsumer: MoqOriginConsumer,
+        surface: Surface,
+        broadcastName: String,
+        codecPreference: CodecPreference,
+    ) {
+        status(PlayerState.WaitingBroadcast)
+        originConsumer.announcedBroadcast(broadcastName).use { announced ->
+            announced.available().use { broadcast ->
+                status(PlayerState.ReadingCatalog)
+                broadcast.subscribeCatalog().use { catalogConsumer ->
+                    val catalog = catalogReader.readFirst(catalogConsumer, broadcastName)
+                    val trackInfo = trackSelector.select(catalog, broadcastName, codecPreference)
+                    pipeline.play(broadcast, surface, trackInfo, catalogConsumer)
                 }
             }
         }

@@ -1,0 +1,71 @@
+package com.example.moqandroid.ui.nearby
+
+import com.example.moqandroid.network.lan.discovery.DiscoveredPeer
+import com.example.moqandroid.network.lan.mesh.PeerConnectionState
+import com.example.moqandroid.network.lan.mesh.RemoteScreenBroadcast
+import com.example.moqandroid.network.lan.mesh.ScreenBroadcastAvailability
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NearbyStateTest {
+    @Test
+    fun combinesDiscoveryTransportAndScreenState() {
+        val peer = DiscoveredPeer(
+            serviceName = "peer-a",
+            addresses = listOf("192.168.1.20"),
+            port = 4443,
+            fingerprint = "fingerprint",
+            nodeUrl = "moqt://192.168.1.20:4443/.cluster/token",
+            credential = "token",
+        )
+        val path = "moqcast.screen/peer-a"
+
+        val item = PeerListProjector.project(
+            peers = listOf(peer),
+            connections = mapOf("peer-a" to PeerConnectionState.Connected),
+            screens = mapOf(
+                path to RemoteScreenBroadcast("peer-a", path, ScreenBroadcastAvailability.Available),
+            ),
+            localPeerId = "local",
+        ).single()
+
+        assertEquals("peer-a", item.peerId)
+        assertEquals(PeerConnectionState.Connected, item.connectionState)
+        assertEquals(path, item.screenBroadcastPath)
+        assertTrue(item.canWatch)
+    }
+
+    @Test
+    fun withdrawnScreenIsNotWatchable() {
+        val peer = DiscoveredPeer("peer-a", listOf("192.168.1.20"), 4443, null, null, "token")
+        val path = "moqcast.screen/peer-a"
+
+        val item = PeerListProjector.project(
+            peers = listOf(peer),
+            connections = emptyMap(),
+            screens = mapOf(
+                path to RemoteScreenBroadcast("peer-a", path, ScreenBroadcastAvailability.Withdrawn),
+            ),
+            localPeerId = "local",
+        ).single()
+
+        assertFalse(item.canWatch)
+    }
+
+    @Test
+    fun publishingBlocksRemotePlayback() {
+        assertNull(
+            NearbyMediaStateReducer.viewingStarted(
+                NearbyMediaState.PublishingScreen,
+                publisherId = "peer-a",
+            ),
+        )
+        assertEquals(
+            NearbyMediaState.ViewingRemote("peer-a"),
+            NearbyMediaStateReducer.viewingStarted(NearbyMediaState.ConnectedIdle, "peer-a"),
+        )
+    }
+}

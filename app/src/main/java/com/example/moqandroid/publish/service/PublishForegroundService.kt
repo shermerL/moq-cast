@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import com.example.moqandroid.R
+import com.example.moqandroid.network.lan.mesh.LanMeshOriginRegistry
 import com.example.moqandroid.publish.MoqPublishSession
 import com.example.moqandroid.publish.PublishSessionConfig
 import com.example.moqandroid.publish.PublishSourceType
@@ -62,6 +63,8 @@ class PublishForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val sourceType = intent.publishSourceType()
+        val relayUrl = intent?.getStringExtra(EXTRA_RELAY_URL).orEmpty()
+        val connectionLabel = intent?.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl
         val includeMicrophone = sourceType == PublishSourceType.Camera &&
             intent?.getBooleanExtra(EXTRA_MICROPHONE, false) == true
         Log.i(
@@ -71,7 +74,8 @@ class PublishForegroundService : Service() {
         )
         if (intent?.action == ACTION_STOP) {
             startForegroundService(
-                relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty(),
+                relayUrl = relayUrl,
+                connectionLabel = connectionLabel,
                 broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty(),
                 sourceType = sourceType,
                 includeMicrophone = false,
@@ -82,7 +86,8 @@ class PublishForegroundService : Service() {
         }
 
         startForegroundService(
-            relayUrl = intent?.getStringExtra(EXTRA_RELAY_URL).orEmpty(),
+            relayUrl = relayUrl,
+            connectionLabel = connectionLabel,
             broadcastName = intent?.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty(),
             sourceType = sourceType,
             includeMicrophone = includeMicrophone,
@@ -179,6 +184,13 @@ class PublishForegroundService : Service() {
             }
             MoqPublishSession(
                 relayUrl = relayUrl,
+                tlsFingerprints = intent.getStringExtra(EXTRA_TLS_FINGERPRINT)?.let(::listOf).orEmpty(),
+                connectionLabel = intent.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl,
+                sharedOrigin = if (intent.getBooleanExtra(EXTRA_LAN_MESH, false)) {
+                    LanMeshOriginRegistry.current() ?: error("The LAN mesh is no longer running.")
+                } else {
+                    null
+                },
                 lifecycle = statusFacade.eventSink(),
             ).publish(
                 source = ScreenPublishSource(
@@ -275,6 +287,7 @@ class PublishForegroundService : Service() {
 
     private fun startForegroundService(
         relayUrl: String,
+        connectionLabel: String,
         broadcastName: String,
         sourceType: PublishSourceType,
         includeMicrophone: Boolean,
@@ -282,9 +295,9 @@ class PublishForegroundService : Service() {
         val text = buildString {
             append("broadcast=")
             append(broadcastName.ifEmpty { "unknown" })
-            if (relayUrl.isNotEmpty()) {
-                append("\nrelay=")
-                append(relayUrl)
+            if (connectionLabel.isNotEmpty()) {
+                append("\ntarget=")
+                append(connectionLabel)
             }
         }
 
@@ -304,7 +317,7 @@ class PublishForegroundService : Service() {
             .setCategory(Notification.CATEGORY_SERVICE)
             .setShowWhen(false)
             .setOngoing(true)
-            .addAction(stopAction(relayUrl, broadcastName, sourceType))
+            .addAction(stopAction(relayUrl, connectionLabel, broadcastName, sourceType))
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -326,12 +339,14 @@ class PublishForegroundService : Service() {
 
     private fun stopAction(
         relayUrl: String,
+        connectionLabel: String,
         broadcastName: String,
         sourceType: PublishSourceType,
     ): Notification.Action {
         val stopIntent = Intent(this, PublishForegroundService::class.java)
             .setAction(ACTION_STOP)
             .putExtra(EXTRA_RELAY_URL, relayUrl)
+            .putExtra(EXTRA_CONNECTION_LABEL, connectionLabel)
             .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
             .putExtra(EXTRA_SOURCE_TYPE, sourceType.storageValue)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -362,6 +377,8 @@ class PublishForegroundService : Service() {
         private const val ACTION_START_PUBLISH = "com.example.moqandroid.action.START_PUBLISH"
         private const val ACTION_STOP = "com.example.moqandroid.action.STOP_PUBLISH"
         private const val EXTRA_RELAY_URL = "relay_url"
+        private const val EXTRA_TLS_FINGERPRINT = "tls_fingerprint"
+        private const val EXTRA_CONNECTION_LABEL = "connection_label"
         private const val EXTRA_BROADCAST_NAME = "broadcast_name"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_RESULT_DATA = "result_data"
@@ -377,6 +394,7 @@ class PublishForegroundService : Service() {
         private const val EXTRA_SOURCE_TYPE = "source_type"
         private const val EXTRA_FILE_URI = "file_uri"
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
+        private const val EXTRA_LAN_MESH = "lan_mesh"
         private const val NOTIFICATION_ID = 1002
 
         private val statusFacade = PublishStatusFacade()
@@ -385,15 +403,20 @@ class PublishForegroundService : Service() {
         fun startScreen(
             context: Context,
             relayUrl: String,
+            tlsFingerprint: String? = null,
+            connectionLabel: String = relayUrl,
             broadcastName: String,
             resultCode: Int,
             resultData: Intent,
             config: ScreenPublishConfig,
+            useLanMesh: Boolean = false,
         ) {
             activeSourceType = PublishSourceType.Screen
             val intent = Intent(context, PublishForegroundService::class.java)
                 .setAction(ACTION_START_PUBLISH)
                 .putExtra(EXTRA_RELAY_URL, relayUrl)
+                .putExtra(EXTRA_TLS_FINGERPRINT, tlsFingerprint)
+                .putExtra(EXTRA_CONNECTION_LABEL, connectionLabel)
                 .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_RESULT_DATA, resultData)
@@ -404,6 +427,7 @@ class PublishForegroundService : Service() {
                 .putExtra(EXTRA_ENCODER_POLICY, config.video.encoderPolicy.storageValue)
                 .putExtra(EXTRA_H264_PROFILE, config.video.h264ProfilePreference.storageValue)
                 .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Screen.storageValue)
+                .putExtra(EXTRA_LAN_MESH, useLanMesh)
             startService(context, intent)
         }
 

@@ -17,6 +17,11 @@ import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.config.RelayConfig
 import com.example.moqandroid.config.SettingsState
 import com.example.moqandroid.config.withAppLanguage
+import com.example.moqandroid.network.lan.mesh.ScreenBroadcastAvailability
+import com.example.moqandroid.network.lan.mesh.MoqLanMeshRuntime
+import com.example.moqandroid.network.lan.server.MoqPeerServer
+import com.example.moqandroid.network.lan.server.PeerListenerState
+import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.playback.PlaybackController
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.CameraPublishStartRequest
@@ -36,9 +41,16 @@ import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
 import com.example.moqandroid.publish.file.PublishFileProbe
 import com.example.moqandroid.publish.file.PublishFileState
 import com.example.moqandroid.ui.app.PublishPanelMode
+import com.example.moqandroid.ui.nearby.NearbyMediaState
+import com.example.moqandroid.ui.nearby.NearbyMediaStateReducer
+import com.example.moqandroid.ui.nearby.PeerListItem
+import com.example.moqandroid.ui.nearby.PeerListProjector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,12 +62,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
     private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
     private val initialShowPlaybackStats = configStore.loadShowPlaybackStats()
+    private val initialLanMeshEnabled = configStore.loadLanMeshEnabled()
     private var appLanguage = initialLanguage
     private var localizedResources = application.withAppLanguage(initialLanguage)
     private val publishController = PublishController(application)
     private val publishFileProbe = PublishFileProbe(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
+    private val lanMesh = MoqLanMeshRuntime(application, viewModelScope)
     private var publishFileProbeJob: Job? = null
+    private var nearbyScreenPublishPending = false
+    private var playbackTarget = PlaybackTarget.Relay
 
     var relayConfig by mutableStateOf(RelayConfig(initialRelayUrl))
         private set
@@ -67,6 +83,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
             showPlaybackStats = initialShowPlaybackStats,
+            lanMeshEnabled = initialLanMeshEnabled,
         ),
     )
         private set
@@ -78,6 +95,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
             showPlaybackStats = initialShowPlaybackStats,
+            lanMeshEnabled = initialLanMeshEnabled,
         ),
     )
         private set
@@ -109,6 +127,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var playerBroadcast by mutableStateOf<String?>(null)
         private set
+    var nearbyMediaState by mutableStateOf<NearbyMediaState>(NearbyMediaState.ConnectedIdle)
+        private set
 
     private var activeBroadcastName = "bbb.hang"
 
@@ -139,14 +159,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsShowPlaybackStats: Boolean
         get() = settingsState.showPlaybackStats
 
+    val settingsLanMeshEnabled: Boolean
+        get() = settingsState.lanMeshEnabled
+
     val languageOptions: List<AppLanguage>
         get() = AppLanguage.entries
 
     val h264ProfileOptions: List<H264ProfilePreference>
         get() = H264ProfilePreference.entries
 
+    val nearbyDiscoveryState = lanMesh.discoveryState
+    val nearbyServerState = lanMesh.serverState
+    val nearbyPeerItems = combine(
+        lanMesh.discoveryState,
+        lanMesh.peerStates,
+        lanMesh.broadcasts,
+        lanMesh.serverState,
+    ) { discovery, connections, screens, server ->
+        PeerListProjector.project(
+            peers = discovery.peers,
+            connections = connections,
+            screens = screens,
+            localPeerId = server.serviceName(),
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     init {
         currentScreen = if (relayConfig.relayUrl.isBlank()) AppScreen.Config else AppScreen.Home
+        if (initialLanMeshEnabled) lanMesh.start()
         viewModelScope.launch {
             publishController.status.collect { state ->
                 updatePublishStatus(state)
@@ -185,6 +225,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettingsShowPlaybackStats(value: Boolean) {
         settingsState = settingsState.withShowPlaybackStats(value)
+    }
+
+    fun updateSettingsLanMeshEnabled(value: Boolean) {
+        settingsState = settingsState.withLanMeshEnabled(value)
+        configState = configState.withLanMeshEnabled(value)
+        configStore.saveLanMeshEnabled(value)
+        if (value) lanMesh.start() else lanMesh.stop()
     }
 
     fun updatePublishBroadcast(value: String) {
@@ -237,7 +284,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun showMainUi() {
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         playerBroadcast = null
+        playbackTarget = PlaybackTarget.Relay
         currentScreen = AppScreen.Home
+    }
+
+    fun showNearbyUi() {
+        stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
+        playerBroadcast = null
+        currentScreen = AppScreen.Nearby
+    }
+
+    fun startNearbyDiscovery() {
+        if (settingsState.lanMeshEnabled) lanMesh.start()
+    }
+
+    fun stopNearbyDiscovery() {
+        if (!settingsState.lanMeshEnabled) lanMesh.stop()
+    }
+
+    fun refreshNearbyPeers() {
+        if (settingsState.lanMeshEnabled) lanMesh.refresh()
     }
 
     fun showSettingsUi() {
@@ -267,11 +333,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
             .withH264ProfilePreference(settingsState.h264ProfilePreference)
             .withShowPlaybackStats(settingsState.showPlaybackStats)
+            .withLanMeshEnabled(settingsState.lanMeshEnabled)
             .withStatus(text(R.string.relay_required))
         configStore.saveLanguage(settingsState.language)
         configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
         configStore.saveH264ProfilePreference(settingsState.h264ProfilePreference)
         configStore.saveShowPlaybackStats(settingsState.showPlaybackStats)
+        configStore.saveLanMeshEnabled(settingsState.lanMeshEnabled)
         publishStatusMessage = text(R.string.relay_updated)
         subscribeStatusMessage = text(R.string.relay_updated)
         showMainUi()
@@ -299,6 +367,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hasRecordAudioPermission: Boolean,
         hasNotificationPermission: Boolean,
     ): PublishRequest {
+        nearbyScreenPublishPending = false
         val nextRelayConfig = relayConfigFromInput(homeRelayUrl, ::updatePublishHomeStatus) ?: return PublishRequest.None
         applyRelayConfig(nextRelayConfig)
 
@@ -329,18 +398,94 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         metrics: DisplayMetrics,
     ) {
         publishStatusMessage = text(R.string.publish_status_starting)
+        val useLanMesh = nearbyScreenPublishPending
         publishController.startScreen(
             ScreenPublishStartRequest(
-                relayConfig = relayConfig,
+                endpointUrl = relayConfig.relayUrl,
+                tlsFingerprint = null,
+                connectionLabel = if (useLanMesh) text(R.string.nearby_title) else relayConfig.relayUrl,
                 broadcastName = activeBroadcastName,
                 resultCode = resultCode,
                 resultData = resultData,
                 metrics = metrics,
-                includeSystemAudio = includeSystemAudio,
+                includeSystemAudio = if (useLanMesh) false else includeSystemAudio,
                 encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
                 h264ProfilePreference = configState.h264ProfilePreference,
+                useLanMesh = useLanMesh,
             ),
         )
+        if (useLanMesh) {
+            nearbyMediaState = NearbyMediaStateReducer.publishingStarted()
+            nearbyScreenPublishPending = false
+        }
+    }
+
+    fun prepareNearbyScreenPublish(
+        hasNotificationPermission: Boolean,
+    ): PublishRequest {
+        if (!settingsState.lanMeshEnabled) {
+            updatePublishHomeStatus(text(R.string.nearby_mesh_disabled))
+            return PublishRequest.None
+        }
+        if (nearbyMediaState is NearbyMediaState.ViewingRemote) {
+            stopPlayback(text(R.string.nearby_playback_stopped_for_share))
+            playerBroadcast = null
+        }
+        val localPeerId = lanMesh.localPeerId()
+        if (localPeerId == null) {
+            updatePublishHomeStatus(text(R.string.nearby_receiver_not_ready))
+            return PublishRequest.None
+        }
+        activeBroadcastName = MoqPeerServer.screenBroadcast(localPeerId)
+        nearbyScreenPublishPending = true
+        val preparation = publishController.prepare(
+            PublishPreparationInput(
+                source = PublishSourceType.Screen,
+                broadcastInput = activeBroadcastName,
+                includeSystemAudio = false,
+                includeMicrophone = false,
+                cameraLensFacing = cameraLensFacing,
+                cameraQualityPreset = cameraQualityPreset,
+                publishFile = null,
+                permissions = PublishPermissions(
+                    camera = true,
+                    notifications = hasNotificationPermission,
+                    recordAudio = true,
+                ),
+            ),
+        )
+        preparation.broadcastName?.let { activeBroadcastName = it }
+        updatePublishHomeStatus(preparation.message)
+        if (preparation.request == PublishRequest.None) {
+            nearbyScreenPublishPending = false
+        } else {
+            lanMesh.start()
+        }
+        return preparation.request
+    }
+
+    fun cancelNearbyScreenPublish(message: String) {
+        nearbyScreenPublishPending = false
+        failPublish(message)
+        if (currentScreen == AppScreen.Nearby) {
+            lanMesh.start()
+        }
+    }
+
+    fun prepareNearbyPlayback(item: PeerListItem): String? {
+        if (nearbyMediaState == NearbyMediaState.PublishingScreen) {
+            updateSubscribeStatus(text(R.string.nearby_stop_sharing_first))
+            return null
+        }
+        val path = item.screenBroadcastPath ?: return null
+        val screen = lanMesh.broadcasts.value[path]
+        if (screen?.availability != ScreenBroadcastAvailability.Available) return null
+        stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
+        activeBroadcastName = path
+        playerBroadcast = path
+        playbackTarget = PlaybackTarget.Nearby
+        nearbyMediaState = NearbyMediaStateReducer.viewingStarted(nearbyMediaState, item.peerId) ?: return null
+        return path
     }
 
     fun startCameraPublish() {
@@ -380,23 +525,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val nextBroadcast = playerBroadcast ?: return
 
-        playbackController.start(
-            surface = surface,
-            relayUrl = relayConfig.relayUrl,
-            broadcastName = nextBroadcast,
-            onPlayerState = onPlayerState,
-        )
+        when (playbackTarget) {
+            PlaybackTarget.Relay -> playbackController.start(
+                surface = surface,
+                relayUrl = relayConfig.relayUrl,
+                broadcastName = nextBroadcast,
+                onPlayerState = onPlayerState,
+            )
+            PlaybackTarget.Nearby -> {
+                val consumer = lanMesh.consume()
+                if (consumer == null) {
+                    onPlayerState(PlayerState.Failed("Nearby receiver is not running."), "Nearby receiver is not running.")
+                    return
+                }
+                playbackController.startPeer(
+                    surface = surface,
+                    originConsumer = consumer,
+                    peerName = text(R.string.nearby_device),
+                    broadcastName = nextBroadcast,
+                    onPlayerState = onPlayerState,
+                )
+            }
+        }
     }
 
     fun stopPlayback(message: String) {
         playbackController.stop()
         subscribeStatusMessage = message
+        if (playbackTarget == PlaybackTarget.Nearby) nearbyMediaState = NearbyMediaStateReducer.stopped()
     }
 
     fun stopPublish(message: String) {
         publishController.stop()
         publishPanelMode = PublishPanelMode.Ready
         publishStatusMessage = message
+        if (nearbyMediaState == NearbyMediaState.PublishingScreen) {
+            nearbyMediaState = NearbyMediaStateReducer.stopped()
+        }
         if (currentScreen == AppScreen.Home) updatePublishHomeStatus(message)
     }
 
@@ -406,6 +571,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         Log.i(logTag, "AppViewModel cleared")
+        lanMesh.stop()
         stopPlayback("Disconnected from ${playerBroadcast ?: activeBroadcastName}.")
         super.onCleared()
     }
@@ -454,6 +620,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             publishPanelMode = state.toPublishPanelMode()
             publishStatusMessage = message
+            if (
+                nearbyMediaState == NearbyMediaState.PublishingScreen &&
+                (state is PublishState.Stopped || state is PublishState.Failed)
+            ) {
+                nearbyMediaState = NearbyMediaStateReducer.stopped()
+            }
         }
     }
 
@@ -478,7 +650,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
+private fun PeerServerState.serviceName(): String? =
+    (lifecycle as? PeerListenerState.Listening)?.serviceName
+
+private enum class PlaybackTarget {
+    Relay,
+    Nearby,
+}
+
 enum class AppScreen {
     Config,
     Home,
+    Nearby,
 }

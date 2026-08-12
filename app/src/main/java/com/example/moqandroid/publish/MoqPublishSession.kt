@@ -20,6 +20,9 @@ import uniffi.moq.MoqVideoProperties
 
 class MoqPublishSession(
     private val relayUrl: String,
+    private val tlsFingerprints: List<String> = emptyList(),
+    private val connectionLabel: String = relayUrl,
+    private val sharedOrigin: MoqOriginProducer? = null,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
     suspend fun publish(
@@ -51,10 +54,18 @@ class MoqPublishSession(
         publish: suspend (MoqBroadcastProducer) -> Unit,
     ) {
         lifecycle.update(PublisherState.Preparing)
+        sharedOrigin?.let { origin ->
+            lifecycle.update(PublisherState.Connecting(connectionLabel, broadcastName))
+            origin.createBroadcast(broadcastName).use { broadcast -> publish(broadcast) }
+            lifecycle.update(PublisherState.Stopped)
+            return
+        }
+
         MoqOriginProducer(MoqOriginOptions()).use { origin ->
             MoqClient().use { client ->
+                if (tlsFingerprints.isNotEmpty()) client.setTlsFingerprints(tlsFingerprints)
                 client.setPublish(origin)
-                lifecycle.update(PublisherState.Connecting(relayUrl, broadcastName))
+                lifecycle.update(PublisherState.Connecting(connectionLabel, broadcastName))
                 client.connect(relayUrl).use { session ->
                     try {
                         origin.createBroadcast(broadcastName).use { broadcast -> publish(broadcast) }
@@ -166,7 +177,7 @@ class MoqPublishSession(
                         source = source,
                         media = media,
                         videoLayout = videoLayout,
-                        relayUrl = relayUrl,
+                        connectionLabel = connectionLabel,
                         lifecycle = lifecycle,
                     ).run(config.video, broadcastName, audioSource?.config)
                 } finally {
