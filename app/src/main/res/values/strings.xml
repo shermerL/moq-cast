@@ -54,8 +54,6 @@
     <string name="publish_file">Publish file</string>
     <string name="stop_publish">Stop publish</string>
     <string name="subscribe_action">Subscribe</string>
-    <string name="player_preview_label">Player preview</string>
-    <string name="player_preview_meta">Full-screen playback opens after subscription starts.</string>
     <string name="general_section">General</string>
     <string name="publish_section">Video encoding</string>
     <string name="connection_section">Connection</string>

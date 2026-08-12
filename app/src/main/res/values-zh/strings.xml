@@ -54,8 +54,6 @@
     <string name="publish_file">发布文件</string>
     <string name="stop_publish">停止发布</string>
     <string name="subscribe_action">订阅</string>
-    <string name="player_preview_label">播放器预览</string>
-    <string name="player_preview_meta">订阅开始后进入全屏播放。</string>
     <string name="general_section">通用</string>
     <string name="publish_section">视频编码</string>
     <string name="connection_section">连接</string>
