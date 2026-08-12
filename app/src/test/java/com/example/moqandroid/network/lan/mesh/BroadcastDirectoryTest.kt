@@ -35,6 +35,19 @@ class BroadcastDirectoryTest {
     }
 
     @Test
+    fun withdrawnBroadcastCanBecomeAvailableAgain() {
+        val directory = BroadcastDirectory()
+        val path = BroadcastDirectory.screenPath("peer-a")
+        val first = requireNotNull(directory.available(path, localPeerId = "local"))
+        directory.withdrawn(first)
+
+        val second = requireNotNull(directory.available(path, localPeerId = "local"))
+
+        assertEquals(ScreenBroadcastAvailability.Available, directory.state.value.getValue(path).availability)
+        assertEquals(second, directory.state.value.getValue(path))
+    }
+
+    @Test
     fun rejectsLocalAndMalformedScreenPaths() {
         val directory = BroadcastDirectory()
 

@@ -56,6 +56,21 @@ class NearbyStateTest {
     }
 
     @Test
+    fun waitingPeerIsNotPresentedAsConnectedByInboundAggregateState() {
+        val peer = DiscoveredPeer("peer-a", listOf("192.168.1.20"), 4443, null, null, "token")
+
+        val item = PeerListProjector.project(
+            peers = listOf(peer),
+            connections = mapOf("peer-a" to PeerConnectionState.Waiting),
+            screens = emptyMap(),
+            localPeerId = "local",
+        ).single()
+
+        assertEquals(PeerConnectionState.Waiting, item.connectionState)
+        assertFalse(item.canWatch)
+    }
+
+    @Test
     fun publishingBlocksRemotePlayback() {
         assertNull(
             NearbyMediaStateReducer.viewingStarted(
@@ -67,5 +82,6 @@ class NearbyStateTest {
             NearbyMediaState.ViewingRemote("peer-a"),
             NearbyMediaStateReducer.viewingStarted(NearbyMediaState.ConnectedIdle, "peer-a"),
         )
+        assertEquals(NearbyMediaState.ConnectedIdle, NearbyMediaStateReducer.stopped())
     }
 }

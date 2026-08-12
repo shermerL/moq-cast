@@ -21,4 +21,33 @@ class PeerServerStateTest {
     fun activeSessionCountCannotBecomeNegative() {
         assertEquals(0, PeerServerState().withActiveSessionDelta(-1).activeSessionCount)
     }
+
+    @Test
+    fun staleSessionCannotChangeANewerListenerCount() {
+        val tracker = PeerServerStateTracker()
+        val first = tracker.begin()
+        tracker.listener(first.generation, PeerListenerState.Listening("first", 4443))
+        tracker.session(first.generation, 1)
+
+        val second = tracker.begin()
+        tracker.listener(second.generation, PeerListenerState.Listening("second", 4444))
+        tracker.session(second.generation, 1)
+        tracker.session(first.generation, -1)
+
+        assertEquals(PeerListenerState.Listening("second", 4444), tracker.state.lifecycle)
+        assertEquals(1, tracker.state.activeSessionCount)
+    }
+
+    @Test
+    fun stoppingListenerClearsInboundSessions() {
+        val tracker = PeerServerStateTracker()
+        val listener = tracker.begin()
+        tracker.listener(listener.generation, PeerListenerState.Listening("local", 4443))
+        tracker.session(listener.generation, 2)
+
+        tracker.stop()
+
+        assertEquals(PeerListenerState.Idle, tracker.state.lifecycle)
+        assertEquals(0, tracker.state.activeSessionCount)
+    }
 }

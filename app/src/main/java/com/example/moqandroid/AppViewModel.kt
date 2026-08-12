@@ -171,13 +171,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val nearbyDiscoveryState = lanMesh.discoveryState
     val nearbyServerState = lanMesh.serverState
     val nearbyPeerItems = combine(
-        lanMesh.discoveryState,
+        lanMesh.peers,
         lanMesh.peerStates,
         lanMesh.broadcasts,
         lanMesh.serverState,
-    ) { discovery, connections, screens, server ->
+    ) { peers, connections, screens, server ->
         PeerListProjector.project(
-            peers = discovery.peers,
+            peers = peers,
             connections = connections,
             screens = screens,
             localPeerId = server.serviceName(),

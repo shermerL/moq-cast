@@ -86,6 +86,7 @@
     <string name="nearby_connection_failed">连接失败：%1$s</string>
     <string name="nearby_lost">设备已离开</string>
     <string name="nearby_inbound_connections">%1$d 条入站连接</string>
+    <string name="nearby_inbound_connections_note">入站会话独立统计，当前不会映射到具体设备行。</string>
     <string name="nearby_mesh_disabled">请先在设置中开启局域网 Mesh。</string>
     <string name="nearby_receiver_not_ready">附近接收端尚未就绪。</string>
     <string name="nearby_playback_stopped_for_share">共享前已停止附近播放。</string>

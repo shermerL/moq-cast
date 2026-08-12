@@ -33,6 +33,7 @@ class MoqLanMeshRuntime(
     private val peerJobs = linkedMapOf<String, PeerJob>()
     private val peerDirectory = PeerConnectionDirectory()
     private val mutablePeerStates = MutableStateFlow<Map<String, PeerConnectionState>>(emptyMap())
+    private val mutablePeers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
     private var reconcileJob: Job? = null
     private var nextPeerGeneration = 0L
     private var started = false
@@ -40,6 +41,7 @@ class MoqLanMeshRuntime(
     val discoveryState = discovery.state
     val serverState = server.state
     val broadcasts = server.broadcasts
+    val peers: StateFlow<List<DiscoveredPeer>> = mutablePeers.asStateFlow()
     val peerStates: StateFlow<Map<String, PeerConnectionState>> = mutablePeerStates.asStateFlow()
 
     fun start() {
@@ -69,6 +71,7 @@ class MoqLanMeshRuntime(
             peerJobs.clear()
         }
         publishPeerStates(peerDirectory::clear)
+        mutablePeers.value = emptyList()
         discovery.stop()
         server.stop()
     }
@@ -87,6 +90,7 @@ class MoqLanMeshRuntime(
             publishPeerStates {
                 peerDirectory.reconcile(peers.mapTo(mutableSetOf(), DiscoveredPeer::id), emptySet())
             }
+            mutablePeers.value = peers
             return
         }
 
@@ -94,22 +98,25 @@ class MoqLanMeshRuntime(
         val wanted = discovered.values
             .filter { peer -> localId < peer.id }
             .associateBy(DiscoveredPeer::id)
+        val retained = retainedPeerIds(discovered.keys)
 
         synchronized(peerJobs) {
-            peerJobs.keys.minus(wanted.keys).forEach { id ->
+            peerJobs.keys.minus(wanted.keys + retained).forEach { id ->
                 peerJobs.remove(id)?.job?.cancel()
-                Log.i(LOG_TAG, "LAN mesh peer removed id=$id")
+                Log.i(LOG_TAG, "LAN peer event=removed id=$id reason=not-discovered")
             }
         }
-        publishPeerStates { peerDirectory.reconcile(discovered.keys, wanted.keys) }
+        publishPeerStates { peerDirectory.reconcile(discovered.keys, wanted.keys, retained) }
+        publishVisiblePeers(discovered, retained)
 
         wanted.forEach { (id, peer) ->
             synchronized(peerJobs) {
                 val current = peerJobs[id]
                 if (current?.peer == peer) return@synchronized
                 current?.job?.cancel()
-                updatePeerState(id, PeerConnectionState.Connecting)
                 val generation = ++nextPeerGeneration
+                publishPeerStates { peerDirectory.begin(id, generation) }
+                Log.i(LOG_TAG, "LAN peer event=connecting id=$id generation=$generation")
                 val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) { connect(peer, generation) }
                 peerJobs[id] = PeerJob(peer, generation, job)
                 job.start()
@@ -123,7 +130,11 @@ class MoqLanMeshRuntime(
             updatePeerState(peer.id, generation, PeerConnectionState.Failed(error.message ?: "Invalid peer endpoint."))
             return
         }
-        val origin = server.origin() ?: return
+        val origin = server.origin()
+        if (origin == null) {
+            updatePeerState(peer.id, generation, PeerConnectionState.Failed("LAN origin is not ready."))
+            return
+        }
 
         try {
             MoqClient().use { client ->
@@ -140,7 +151,6 @@ class MoqLanMeshRuntime(
                             -> PeerConnectionState.Reconnecting
                         }
                         updatePeerState(peer.id, generation, state)
-                        Log.i(LOG_TAG, "LAN mesh peer status id=${peer.id} state=${state::class.simpleName}")
                     }
                 }
             }
@@ -157,23 +167,61 @@ class MoqLanMeshRuntime(
             } else {
                 updatePeerState(peer.id, generation, PeerConnectionState.Lost)
             }
+        } finally {
+            if (discovery.state.value.peers.none { it.id == peer.id }) {
+                synchronized(peerJobs) {
+                    if (peerJobs[peer.id]?.generation == generation) peerJobs.remove(peer.id)
+                }
+                publishVisiblePeers(
+                    discovery.state.value.peers.associateBy(DiscoveredPeer::id),
+                    retainedPeerIds = retainedPeerIds(
+                        discovery.state.value.peers.mapTo(mutableSetOf(), DiscoveredPeer::id),
+                    ),
+                )
+            }
         }
     }
 
-    private fun updatePeerState(peerId: String, state: PeerConnectionState) {
-        publishPeerStates { peerDirectory.update(peerId, state) }
-    }
-
     private fun updatePeerState(peerId: String, generation: Long, state: PeerConnectionState) {
-        synchronized(peerJobs) {
+        val changed = synchronized(peerJobs) {
             if (peerJobs[peerId]?.generation != generation) return
-            updatePeerState(peerId, state)
+            synchronized(peerDirectory) {
+                val previous = peerDirectory.snapshot()[peerId]
+                if (previous == state) return
+                if (!peerDirectory.update(peerId, generation, state)) return
+                mutablePeerStates.value = peerDirectory.snapshot()
+                true
+            }
+        }
+        if (changed) {
+            Log.i(LOG_TAG, "LAN peer event=state id=$peerId generation=$generation state=${state.logName()}")
         }
     }
 
     private fun publishPeerStates(update: () -> Map<String, PeerConnectionState>) {
         synchronized(peerDirectory) {
             mutablePeerStates.value = update()
+        }
+    }
+
+    private fun publishVisiblePeers(
+        discovered: Map<String, DiscoveredPeer>,
+        retainedPeerIds: Set<String>,
+    ) {
+        val retainedPeers = synchronized(peerJobs) {
+            retainedPeerIds.mapNotNull { peerJobs[it]?.peer }
+        }
+        mutablePeers.value = (discovered.values + retainedPeers)
+            .distinctBy(DiscoveredPeer::id)
+            .sortedBy { it.serviceName.lowercase() }
+    }
+
+    private fun retainedPeerIds(discoveredPeerIds: Set<String>): Set<String> = synchronized(peerJobs) {
+        val states = peerDirectory.snapshot()
+        peerJobs.keys.filterTo(mutableSetOf()) { id ->
+            id !in discoveredPeerIds &&
+                peerJobs[id]?.job?.isActive == true &&
+                states[id].keepsSessionAcrossDiscoveryLoss()
         }
     }
 
@@ -186,6 +234,19 @@ class MoqLanMeshRuntime(
     private companion object {
         private const val LOG_TAG = "MoqAndroid"
     }
+}
+
+private fun PeerConnectionState?.keepsSessionAcrossDiscoveryLoss(): Boolean =
+    this == PeerConnectionState.Connected || this == PeerConnectionState.Reconnecting
+
+private fun PeerConnectionState.logName(): String = when (this) {
+    PeerConnectionState.Discovered -> "discovered"
+    PeerConnectionState.Waiting -> "waiting"
+    PeerConnectionState.Connecting -> "connecting"
+    PeerConnectionState.Connected -> "connected"
+    PeerConnectionState.Reconnecting -> "reconnecting"
+    is PeerConnectionState.Failed -> "failed"
+    PeerConnectionState.Lost -> "lost"
 }
 
 private fun PeerServerState.serviceName(): String? =

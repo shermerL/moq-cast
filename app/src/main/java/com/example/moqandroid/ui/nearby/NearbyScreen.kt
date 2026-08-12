@@ -265,6 +265,12 @@ private fun DiscoverySummary(state: NearbyUiState) {
                         color = TextSecondary,
                         fontSize = 12.sp,
                     )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.nearby_inbound_connections_note),
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                    )
                 }
             }
         }

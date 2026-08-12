@@ -71,6 +71,7 @@ class MoqNsdDiscovery(context: Context) {
                 if (activeListener !== this || stopRequested) return@onMainThread
                 val serviceName = serviceInfo.serviceName
                 availableServices += serviceName
+                Log.i(LOG_TAG, "LAN discovery event=found service=$serviceName")
                 if (
                     serviceName != resolvingService &&
                     serviceName !in resolvedPeers &&
@@ -88,7 +89,7 @@ class MoqNsdDiscovery(context: Context) {
                 queuedServices -= serviceName
                 resolveQueue.removeAll { it.serviceName == serviceName }
                 if (resolvedPeers.remove(serviceName) != null) {
-                    Log.i(LOG_TAG, "MoQ service lost name=$serviceName")
+                    Log.i(LOG_TAG, "LAN discovery event=lost service=$serviceName")
                     publishState(DiscoveryPhase.Scanning)
                 }
             }
@@ -147,7 +148,7 @@ class MoqNsdDiscovery(context: Context) {
                     resolvedPeers[serviceName] = peer
                     Log.i(
                         LOG_TAG,
-                        "Resolved MoQ service name=${peer.serviceName} addresses=${peer.addresses.size} " +
+                        "LAN discovery event=resolved service=${peer.serviceName} addresses=${peer.addresses.size} " +
                             "port=${peer.port} fingerprint=${peer.fingerprint != null} node=${peer.nodeUrl != null}",
                     )
                     publishState(DiscoveryPhase.Scanning)

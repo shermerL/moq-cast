@@ -86,6 +86,7 @@
     <string name="nearby_connection_failed">Failed: %1$s</string>
     <string name="nearby_lost">Lost</string>
     <string name="nearby_inbound_connections">%1$d inbound connection(s)</string>
+    <string name="nearby_inbound_connections_note">Inbound sessions are not assigned to individual device rows.</string>
     <string name="nearby_mesh_disabled">Enable LAN mesh in Settings first.</string>
     <string name="nearby_receiver_not_ready">Nearby receiver is not ready yet.</string>
     <string name="nearby_playback_stopped_for_share">Nearby playback stopped before sharing.</string>

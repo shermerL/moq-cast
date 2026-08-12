@@ -14,22 +14,35 @@ sealed interface PeerConnectionState {
 /** Mutable peer state table owned by the LAN mesh runtime. */
 class PeerConnectionDirectory {
     private val states = linkedMapOf<String, PeerConnectionState>()
+    private val generations = linkedMapOf<String, Long>()
 
     @Synchronized
-    fun update(peerId: String, state: PeerConnectionState): Map<String, PeerConnectionState> {
-        states[peerId] = state
+    fun begin(peerId: String, generation: Long): Map<String, PeerConnectionState> {
+        generations[peerId] = generation
+        states[peerId] = PeerConnectionState.Connecting
         return snapshot()
+    }
+
+    @Synchronized
+    fun update(peerId: String, generation: Long, state: PeerConnectionState): Boolean {
+        if (generations[peerId] != generation) return false
+        states[peerId] = state
+        return true
     }
 
     @Synchronized
     fun reconcile(
         discoveredPeerIds: Set<String>,
         dialedPeerIds: Set<String>,
+        retainedPeerIds: Set<String> = emptySet(),
     ): Map<String, PeerConnectionState> {
         states.entries.removeAll { (peerId, state) ->
-            peerId !in discoveredPeerIds && state == PeerConnectionState.Lost
+            peerId !in discoveredPeerIds && peerId !in retainedPeerIds && state == PeerConnectionState.Lost
         }
-        states.keys.minus(discoveredPeerIds).forEach { peerId -> states[peerId] = PeerConnectionState.Lost }
+        generations.keys.retainAll(discoveredPeerIds + retainedPeerIds)
+        states.keys.minus(discoveredPeerIds + retainedPeerIds).forEach { peerId ->
+            states[peerId] = PeerConnectionState.Lost
+        }
         discoveredPeerIds.forEach { peerId ->
             val current = states[peerId]
             if (current == null || current == PeerConnectionState.Lost) {
@@ -46,8 +59,10 @@ class PeerConnectionDirectory {
     @Synchronized
     fun clear(): Map<String, PeerConnectionState> {
         states.clear()
+        generations.clear()
         return emptyMap()
     }
 
-    private fun snapshot(): Map<String, PeerConnectionState> = states.toMap()
+    @Synchronized
+    fun snapshot(): Map<String, PeerConnectionState> = states.toMap()
 }

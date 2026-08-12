@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,8 +38,7 @@ class MoqPeerServer(
     private var restartAfterStop = false
     private var server: MoqServer? = null
     private var receiveOrigin: MoqOriginProducer? = null
-    private var listenerState: PeerListenerState = PeerListenerState.Idle
-    private var activeSessionCount = 0
+    private val stateTracker = PeerServerStateTracker()
 
     val state: StateFlow<PeerServerState> = mutableState.asStateFlow()
     val broadcasts = broadcastDirectory.state
@@ -72,7 +73,7 @@ class MoqPeerServer(
         listener?.cancel()
         advertiser.unregister()
         broadcastDirectory.reset()
-        updateListenerState(PeerListenerState.Idle)
+        publishState(stateTracker.stop())
     }
 
     fun consume(): MoqOriginConsumer? = synchronized(resourceLock) { receiveOrigin?.consume() }
@@ -80,9 +81,12 @@ class MoqPeerServer(
     fun origin(): MoqOriginProducer? = synchronized(resourceLock) { receiveOrigin }
 
     private suspend fun runServer() {
+        currentCoroutineContext().ensureActive()
         val instance = randomHex(INSTANCE_BYTES)
         val credential = randomHex(CREDENTIAL_BYTES)
-        updateListenerState(PeerListenerState.Starting)
+        val listenerGeneration = stateTracker.begin()
+        publishState(listenerGeneration.state)
+        Log.i(LOG_TAG, "LAN listener event=starting generation=${listenerGeneration.generation}")
         try {
             MoqOriginProducer(MoqOriginOptions()).use { origin ->
                 LanMeshOriginRegistry.attach(origin)
@@ -107,10 +111,25 @@ class MoqPeerServer(
                             fingerprint = fingerprint,
                             credential = credential,
                             onRegistered = { registeredName ->
-                                updateListenerState(PeerListenerState.Listening(registeredName, port))
+                                val registered = stateTracker.listener(
+                                    listenerGeneration.generation,
+                                    PeerListenerState.Listening(registeredName, port),
+                                )
+                                if (registered != null) {
+                                    publishState(registered)
+                                    Log.i(
+                                        LOG_TAG,
+                                        "LAN listener event=listening generation=${listenerGeneration.generation} " +
+                                            "service=$registeredName port=$port",
+                                    )
+                                }
                             },
                             onFailure = { code ->
-                                updateListenerState(PeerListenerState.Failed("mDNS registration failed ($code)."))
+                                val failed = stateTracker.listener(
+                                    listenerGeneration.generation,
+                                    PeerListenerState.Failed("mDNS registration failed ($code)."),
+                                )
+                                publishState(failed)
                                 listener.cancel()
                             },
                         )
@@ -141,13 +160,17 @@ class MoqPeerServer(
                                                         }
                                                     } finally {
                                                         broadcastDirectory.withdrawn(screen)
-                                                        Log.i(LOG_TAG, "Nearby screen broadcast withdrawn name=$path")
+                                                        Log.i(
+                                                            LOG_TAG,
+                                                            "LAN broadcast event=withdrawn path=$path revision=${screen.revision}",
+                                                        )
                                                     }
                                                 }
                                             }
                                             Log.i(
                                                 LOG_TAG,
-                                                "Nearby screen broadcast available name=${screen.path} publisher=${screen.publisherId}",
+                                                "LAN broadcast event=available path=${screen.path} " +
+                                                    "publisher=${screen.publisherId} revision=${screen.revision}",
                                             )
                                         }
                                     }
@@ -160,7 +183,7 @@ class MoqPeerServer(
                     }
 
                     try {
-                        acceptLoop(listener, credential)
+                        acceptLoop(listener, credential, listenerGeneration.generation)
                     } finally {
                         broadcastJob.cancel()
                     }
@@ -170,7 +193,12 @@ class MoqPeerServer(
             throw error
         } catch (error: Throwable) {
             Log.w(LOG_TAG, "Nearby MoQ server failed.", error)
-            updateListenerState(PeerListenerState.Failed(error.message ?: error::class.java.simpleName))
+            publishState(
+                stateTracker.listener(
+                    listenerGeneration.generation,
+                    PeerListenerState.Failed(error.message ?: error::class.java.simpleName),
+                ),
+            )
         } finally {
             advertiser.unregister()
             broadcastDirectory.reset()
@@ -179,13 +207,15 @@ class MoqPeerServer(
                 server = null
                 receiveOrigin = null
             }
-            if (scope.isActive && mutableState.value.lifecycle !is PeerListenerState.Failed) {
-                updateListenerState(PeerListenerState.Idle)
-            }
+            publishState(stateTracker.finish(listenerGeneration.generation))
         }
     }
 
-    private suspend fun acceptLoop(listener: MoqServer, credential: String) = coroutineScope {
+    private suspend fun acceptLoop(
+        listener: MoqServer,
+        credential: String,
+        listenerGeneration: Long,
+    ) = coroutineScope {
         while (scope.isActive) {
             val request = listener.accept() ?: break
             launch {
@@ -196,12 +226,27 @@ class MoqPeerServer(
                             request.reject(403u.toUShort())
                         } else {
                             request.accept().use { session ->
-                                updateActiveSessions(1)
-                                Log.i(LOG_TAG, "Accepted nearby MoQ peer transport=${request.transport()}")
+                                val accepted = stateTracker.session(listenerGeneration, 1)
+                                publishState(accepted)
+                                if (accepted != null) {
+                                    Log.i(
+                                        LOG_TAG,
+                                        "LAN inbound event=connected generation=$listenerGeneration " +
+                                            "transport=${request.transport()} count=${accepted.activeSessionCount}",
+                                    )
+                                }
                                 try {
                                     session.closed()
                                 } finally {
-                                    updateActiveSessions(-1)
+                                    val closed = stateTracker.session(listenerGeneration, -1)
+                                    publishState(closed)
+                                    if (closed != null) {
+                                        Log.i(
+                                            LOG_TAG,
+                                            "LAN inbound event=closed generation=$listenerGeneration " +
+                                                "count=${closed.activeSessionCount}",
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -235,20 +280,8 @@ class MoqPeerServer(
         private const val LOG_TAG = "MoqAndroid"
     }
 
-    private fun updateListenerState(state: PeerListenerState) {
-        synchronized(resourceLock) {
-            listenerState = state
-            if (state == PeerListenerState.Idle || state is PeerListenerState.Failed) activeSessionCount = 0
-            mutableState.value = PeerServerState(listenerState, activeSessionCount)
-        }
-    }
-
-    private fun updateActiveSessions(delta: Int) {
-        synchronized(resourceLock) {
-            val next = PeerServerState(listenerState, activeSessionCount).withActiveSessionDelta(delta)
-            activeSessionCount = next.activeSessionCount
-            mutableState.value = next
-        }
+    private fun publishState(state: PeerServerState?) {
+        if (state != null) mutableState.value = state
     }
 }
 
@@ -262,6 +295,53 @@ data class PeerServerState(
 
 internal fun PeerServerState.withActiveSessionDelta(delta: Int): PeerServerState =
     copy(activeSessionCount = (activeSessionCount + delta).coerceAtLeast(0))
+
+internal class PeerServerStateTracker {
+    private var generation = 0L
+
+    var state = PeerServerState()
+        private set
+
+    @Synchronized
+    fun begin(): ListenerGeneration {
+        generation += 1
+        state = PeerServerState(PeerListenerState.Starting)
+        return ListenerGeneration(generation, state)
+    }
+
+    @Synchronized
+    fun listener(expectedGeneration: Long, lifecycle: PeerListenerState): PeerServerState? {
+        if (expectedGeneration != generation) return null
+        state = PeerServerState(lifecycle)
+        return state
+    }
+
+    @Synchronized
+    fun session(expectedGeneration: Long, delta: Int): PeerServerState? {
+        if (expectedGeneration != generation || state.lifecycle !is PeerListenerState.Listening) return null
+        state = state.withActiveSessionDelta(delta)
+        return state
+    }
+
+    @Synchronized
+    fun finish(expectedGeneration: Long): PeerServerState? {
+        if (expectedGeneration != generation || state.lifecycle is PeerListenerState.Failed) return null
+        state = PeerServerState(PeerListenerState.Idle)
+        return state
+    }
+
+    @Synchronized
+    fun stop(): PeerServerState {
+        generation += 1
+        state = PeerServerState(PeerListenerState.Idle)
+        return state
+    }
+}
+
+internal data class ListenerGeneration(
+    val generation: Long,
+    val state: PeerServerState,
+)
 
 sealed interface PeerListenerState {
     data object Idle : PeerListenerState
