@@ -171,12 +171,15 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                             canShareScreen = nearbyPeerItems.any {
                                 it.connectionState == PeerConnectionState.Connected
                             } || nearbyServerState.activeSessionCount > 0,
+                            includeSystemAudio = viewModel.nearbyIncludeSystemAudio,
+                            systemAudioSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
                         ),
                         actions = NearbyActions(
                             onBack = viewModel::showMainUi,
                             onStartDiscovery = viewModel::startNearbyDiscovery,
                             onStopDiscovery = viewModel::stopNearbyDiscovery,
                             onRefresh = viewModel::refreshNearbyPeers,
+                            onIncludeSystemAudioChange = viewModel::updateNearbyIncludeSystemAudio,
                             onShareScreen = ::requestNearbyScreenPublish,
                             onOpenActiveSession = {
                                 viewModel.activeNearbyPlayback()?.let(::openPlayerUi)
@@ -208,6 +211,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     private fun requestNearbyScreenPublish() {
         pendingNearbyScreenPublish = true
         val request = viewModel.prepareNearbyScreenPublish(
+            hasRecordAudioPermission = hasRecordAudioPermission(),
             hasNotificationPermission = hasNotificationPermission(),
         )
         if (request == PublishRequest.None) pendingNearbyScreenPublish = false

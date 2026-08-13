@@ -73,6 +73,8 @@
     <string name="nearby_fingerprint">指纹</string>
     <string name="nearby_discovered">已发现</string>
     <string name="nearby_share_screen">共享屏幕</string>
+    <string name="nearby_system_audio">系统音频</string>
+    <string name="nearby_system_audio_note">可选，仅支持 Android 10 及以上。</string>
     <string name="nearby_watch">观看</string>
     <string name="nearby_screen_available">屏幕可用</string>
     <string name="nearby_screen_unavailable">未共享屏幕</string>

@@ -188,10 +188,17 @@ class NearbyStateTest {
             NearbyMediaState.StoppingScreen,
             NearbyMediaStateReducer.stopping(NearbyMediaState.PreparingScreen),
         )
-        assertNull(NearbyMediaStateReducer.preparingScreenStarted(NearbyMediaState.PreparingScreen))
         assertNull(NearbyMediaStateReducer.stopping(NearbyMediaState.StoppingScreen))
         assertNull(NearbyMediaStateReducer.viewingStarted(NearbyMediaState.PreparingScreen, "peer-a"))
         assertEquals(NearbyMediaState.ConnectedIdle, NearbyMediaStateReducer.stopped())
+    }
+
+    @Test
+    fun preparingProjectionIsIdempotentWhilePermissionFlowContinues() {
+        assertEquals(
+            NearbyMediaState.PreparingScreen,
+            NearbyMediaStateReducer.preparingScreenStarted(NearbyMediaState.PreparingScreen),
+        )
     }
 
     @Test

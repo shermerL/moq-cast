@@ -119,6 +119,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var includeSystemAudio by mutableStateOf(false)
         private set
+    var nearbyIncludeSystemAudio by mutableStateOf(false)
+        private set
     var includeMicrophone by mutableStateOf(false)
         private set
     var cameraLensFacing by mutableStateOf(CameraLensFacing.Back)
@@ -252,6 +254,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateIncludeSystemAudio(value: Boolean) {
         includeSystemAudio = value
+    }
+
+    fun updateNearbyIncludeSystemAudio(value: Boolean) {
+        nearbyIncludeSystemAudio = value
     }
 
     fun updateIncludeMicrophone(value: Boolean) {
@@ -419,7 +425,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     resultCode = resultCode,
                     resultData = resultData,
                     metrics = metrics,
-                    includeSystemAudio = if (useLanMesh) false else includeSystemAudio,
+                    includeSystemAudio = if (useLanMesh) nearbyIncludeSystemAudio else includeSystemAudio,
                     encoderPolicy = VideoEncoderPolicy.fromCompatibilityMode(configState.publishCompatibilityMode),
                     h264ProfilePreference = configState.h264ProfilePreference,
                     useLanMesh = useLanMesh,
@@ -435,6 +441,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun prepareNearbyScreenPublish(
+        hasRecordAudioPermission: Boolean,
         hasNotificationPermission: Boolean,
     ): PublishRequest {
         if (!settingsState.lanMeshEnabled) {
@@ -465,7 +472,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             PublishPreparationInput(
                 source = PublishSourceType.Screen,
                 broadcastInput = activeBroadcastName,
-                includeSystemAudio = false,
+                includeSystemAudio = nearbyIncludeSystemAudio,
                 includeMicrophone = false,
                 cameraLensFacing = cameraLensFacing,
                 cameraQualityPreset = cameraQualityPreset,
@@ -473,7 +480,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 permissions = PublishPermissions(
                     camera = true,
                     notifications = hasNotificationPermission,
-                    recordAudio = true,
+                    recordAudio = hasRecordAudioPermission,
                 ),
                 target = PublishTarget.Lan,
             ),

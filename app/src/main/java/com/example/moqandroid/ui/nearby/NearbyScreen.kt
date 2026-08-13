@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -81,9 +83,35 @@ fun NearbyScreen(
     actions: NearbyActions,
 ) {
     val backFocusRequester = remember { FocusRequester() }
+    val refreshFocusRequester = remember { FocusRequester() }
+    val audioFocusRequester = remember { FocusRequester() }
     val shareFocusRequester = remember { FocusRequester() }
+    val openSessionFocusRequester = remember { FocusRequester() }
     val sessionFocusRequester = remember { FocusRequester() }
+    val watchFocusRequesters = remember(state.peers.map(PeerListItem::peerId)) {
+        state.peers.associate { it.peerId to FocusRequester() }
+    }
     var focusedTarget by remember { mutableStateOf<NearbyFocusTarget?>(null) }
+    val globalActions = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
+    val watchablePeers = state.peers.filter { peer ->
+        NearbyActionPolicy.project(state.mediaState, state.canShareScreen, peer.canWatch).canWatch
+    }
+    val firstWatchFocus = watchablePeers.firstOrNull()?.let { watchFocusRequesters.getValue(it.peerId) }
+    val activeSessionFocus = when {
+        globalActions.canOpenActiveSession -> openSessionFocusRequester
+        globalActions.canStop -> sessionFocusRequester
+        else -> null
+    }
+    val firstContentFocus = activeSessionFocus
+        ?: audioFocusRequester.takeIf {
+            state.systemAudioSupported && state.mediaState == NearbyMediaState.ConnectedIdle
+        }
+        ?: shareFocusRequester.takeIf { globalActions.canShareScreen }
+        ?: firstWatchFocus
+        ?: FocusRequester.Default
+    val focusBeforeWatchList = shareFocusRequester.takeIf { globalActions.canShareScreen }
+        ?: activeSessionFocus
+        ?: backFocusRequester
 
     BackHandler(onBack = actions.onBack)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -142,6 +170,8 @@ fun NearbyScreen(
                 NearbyTopBar(
                     actions = actions,
                     backFocusRequester = backFocusRequester,
+                    refreshFocusRequester = refreshFocusRequester,
+                    downFocusRequester = firstContentFocus,
                     onFocused = { focusedTarget = NearbyFocusTarget.Navigation },
                 )
                 DiscoverySummary(state)
@@ -150,13 +180,24 @@ fun NearbyScreen(
                     state = state,
                     actions = actions,
                     focusRequester = sessionFocusRequester,
+                    openFocusRequester = openSessionFocusRequester,
+                    upFocusRequester = backFocusRequester,
+                    downFocusRequester = shareFocusRequester.takeIf { globalActions.canShareScreen }
+                        ?: firstWatchFocus
+                        ?: backFocusRequester,
                     onFocused = { focusedTarget = NearbyFocusTarget.ActiveSession },
                 )
                 if (state.mediaState != NearbyMediaState.ConnectedIdle) Spacer(Modifier.height(12.dp))
                 ScreenShareAction(
                     state = state,
                     actions = actions,
+                    audioFocusRequester = audioFocusRequester,
                     focusRequester = shareFocusRequester,
+                    upFocusRequester = audioFocusRequester.takeIf {
+                        state.systemAudioSupported && state.mediaState == NearbyMediaState.ConnectedIdle
+                    } ?: activeSessionFocus ?: backFocusRequester,
+                    audioUpFocusRequester = activeSessionFocus ?: backFocusRequester,
+                    downFocusRequester = firstWatchFocus ?: backFocusRequester,
                     onFocused = { focusedTarget = NearbyFocusTarget.Share },
                 )
                 Spacer(Modifier.height(16.dp))
@@ -175,6 +216,7 @@ fun NearbyScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(state.peers, key = PeerListItem::peerId) { peer ->
+                            val watchIndex = watchablePeers.indexOfFirst { it.peerId == peer.peerId }
                             PeerRow(
                                 peer = peer,
                                 watchEnabled = NearbyActionPolicy.project(
@@ -182,6 +224,13 @@ fun NearbyScreen(
                                     state.canShareScreen,
                                     peer.canWatch,
                                 ).canWatch,
+                                focusRequester = watchFocusRequesters.getValue(peer.peerId),
+                                upFocusRequester = watchablePeers.getOrNull(watchIndex - 1)
+                                    ?.let { watchFocusRequesters.getValue(it.peerId) }
+                                    ?: focusBeforeWatchList,
+                                downFocusRequester = watchablePeers.getOrNull(watchIndex + 1)
+                                    ?.let { watchFocusRequesters.getValue(it.peerId) }
+                                    ?: FocusRequester.Default,
                                 onWatch = actions.onWatch,
                                 onWatchFocused = {
                                     focusedTarget = NearbyFocusTarget.Watch(peer.peerId)
@@ -199,6 +248,8 @@ fun NearbyScreen(
 private fun NearbyTopBar(
     actions: NearbyActions,
     backFocusRequester: FocusRequester,
+    refreshFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester,
     onFocused: () -> Unit,
 ) {
     var backFocused by remember { mutableStateOf(false) }
@@ -213,6 +264,10 @@ private fun NearbyTopBar(
             onClick = actions.onBack,
             modifier = Modifier
                 .focusRequester(backFocusRequester)
+                .focusProperties {
+                    right = refreshFocusRequester
+                    down = downFocusRequester
+                }
                 .onFocusChanged {
                     backFocused = it.isFocused
                     if (it.isFocused) onFocused()
@@ -233,6 +288,11 @@ private fun NearbyTopBar(
         IconButton(
             onClick = actions.onRefresh,
             modifier = Modifier
+                .focusRequester(refreshFocusRequester)
+                .focusProperties {
+                    left = backFocusRequester
+                    down = downFocusRequester
+                }
                 .onFocusChanged {
                     refreshFocused = it.isFocused
                     if (it.isFocused) onFocused()
@@ -306,15 +366,25 @@ private fun DiscoverySummary(state: NearbyUiState) {
 private fun ScreenShareAction(
     state: NearbyUiState,
     actions: NearbyActions,
+    audioFocusRequester: FocusRequester,
     focusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    audioUpFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester,
     onFocused: () -> Unit,
 ) {
+    val audioEnabled = state.systemAudioSupported && state.mediaState == NearbyMediaState.ConnectedIdle
+    var audioFocused by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     val availability = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
     val modifier = Modifier
         .fillMaxWidth()
         .height(48.dp)
         .focusRequester(focusRequester)
+        .focusProperties {
+            up = upFocusRequester
+            down = downFocusRequester
+        }
         .onFocusChanged {
             focused = it.isFocused
             if (it.isFocused) onFocused()
@@ -322,12 +392,56 @@ private fun ScreenShareAction(
         .then(
             if (focused) Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(24.dp)) else Modifier,
         )
-    Button(
-        onClick = actions.onShareScreen,
-        enabled = availability.canShareScreen,
-        modifier = modifier,
-    ) {
-        Text(stringResource(R.string.nearby_share_screen))
+    Column {
+        Surface(
+            color = if (audioFocused) SurfaceMuted else SurfaceColor,
+            shape = RoundedCornerShape(8.dp),
+            tonalElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.nearby_system_audio),
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = stringResource(R.string.nearby_system_audio_note),
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+                Switch(
+                    checked = state.includeSystemAudio,
+                    onCheckedChange = actions.onIncludeSystemAudioChange,
+                    enabled = audioEnabled,
+                    modifier = Modifier
+                        .focusRequester(audioFocusRequester)
+                        .focusProperties {
+                            up = audioUpFocusRequester
+                            down = focusRequester
+                        }
+                        .onFocusChanged {
+                            audioFocused = it.isFocused
+                            if (it.isFocused) onFocused()
+                        },
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = actions.onShareScreen,
+            enabled = availability.canShareScreen,
+            modifier = modifier,
+        ) {
+            Text(stringResource(R.string.nearby_share_screen))
+        }
     }
 }
 
@@ -336,11 +450,15 @@ private fun ActiveSessionBar(
     state: NearbyUiState,
     actions: NearbyActions,
     focusRequester: FocusRequester,
+    openFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester,
     onFocused: () -> Unit,
 ) {
     if (state.mediaState == NearbyMediaState.ConnectedIdle) return
 
     val availability = NearbyActionPolicy.project(state.mediaState, state.canShareScreen, false)
+    var openFocused by remember { mutableStateOf(false) }
     var primaryFocused by remember { mutableStateOf(false) }
     Surface(
         color = SurfaceMuted,
@@ -372,7 +490,21 @@ private fun ActiveSessionBar(
             if (availability.canOpenActiveSession) {
                 OutlinedButton(
                     onClick = actions.onOpenActiveSession,
-                    modifier = Modifier.height(40.dp),
+                    modifier = Modifier
+                        .height(40.dp)
+                        .focusRequester(openFocusRequester)
+                        .focusProperties {
+                            right = focusRequester
+                            up = upFocusRequester
+                            down = downFocusRequester
+                        }
+                        .onFocusChanged {
+                            openFocused = it.isFocused
+                            if (it.isFocused) onFocused()
+                        }
+                        .then(
+                            if (openFocused) Modifier.border(2.dp, PrimaryColor, RoundedCornerShape(20.dp)) else Modifier,
+                        ),
                 ) {
                     Text(stringResource(R.string.nearby_open_session))
                 }
@@ -383,6 +515,11 @@ private fun ActiveSessionBar(
                 modifier = Modifier
                     .height(40.dp)
                     .focusRequester(focusRequester)
+                    .focusProperties {
+                        if (availability.canOpenActiveSession) left = openFocusRequester
+                        up = upFocusRequester
+                        down = downFocusRequester
+                    }
                     .onFocusChanged {
                         primaryFocused = it.isFocused
                         if (it.isFocused) onFocused()
@@ -464,6 +601,9 @@ private fun EmptyPeerList(phase: DiscoveryPhase, modifier: Modifier = Modifier) 
 private fun PeerRow(
     peer: PeerListItem,
     watchEnabled: Boolean,
+    focusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester,
     onWatch: (PeerListItem) -> Unit,
     onWatchFocused: () -> Unit,
 ) {
@@ -512,6 +652,11 @@ private fun PeerRow(
                     enabled = watchEnabled,
                     modifier = Modifier
                         .height(40.dp)
+                        .focusRequester(focusRequester)
+                        .focusProperties {
+                            up = upFocusRequester
+                            down = downFocusRequester
+                        }
                         .onFocusChanged {
                             watchFocused = it.isFocused
                             if (it.isFocused) onWatchFocused()

@@ -73,6 +73,8 @@
     <string name="nearby_fingerprint">Fingerprint</string>
     <string name="nearby_discovered">Discovered</string>
     <string name="nearby_share_screen">Share screen</string>
+    <string name="nearby_system_audio">System audio</string>
+    <string name="nearby_system_audio_note">Optional. Android 10+ only.</string>
     <string name="nearby_watch">Watch</string>
     <string name="nearby_screen_available">Screen available</string>
     <string name="nearby_screen_unavailable">No screen</string>

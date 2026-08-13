@@ -12,6 +12,8 @@ data class NearbyUiState(
     val serverState: PeerServerState,
     val mediaState: NearbyMediaState,
     val canShareScreen: Boolean,
+    val includeSystemAudio: Boolean,
+    val systemAudioSupported: Boolean,
 )
 
 sealed interface NearbyMediaState {
@@ -48,7 +50,9 @@ object NearbyMediaStateReducer {
     }
 
     fun preparingScreenStarted(current: NearbyMediaState): NearbyMediaState? {
-        return NearbyMediaState.PreparingScreen.takeIf { current == NearbyMediaState.ConnectedIdle }
+        return NearbyMediaState.PreparingScreen.takeIf {
+            current == NearbyMediaState.ConnectedIdle || current == NearbyMediaState.PreparingScreen
+        }
     }
 
     fun viewingStarted(current: NearbyMediaState, publisherId: String): NearbyMediaState? {
@@ -97,6 +101,7 @@ data class NearbyActions(
     val onStartDiscovery: () -> Unit,
     val onStopDiscovery: () -> Unit,
     val onRefresh: () -> Unit,
+    val onIncludeSystemAudioChange: (Boolean) -> Unit,
     val onShareScreen: () -> Unit,
     val onOpenActiveSession: () -> Unit,
     val onStopMedia: () -> Unit,
