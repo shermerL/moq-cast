@@ -21,6 +21,7 @@ data class SettingsUiState(
     val h264ProfilePreference: H264ProfilePreference,
     val h264ProfileOptions: List<H264ProfilePreference>,
     val showPlaybackStats: Boolean,
+    val lanMeshEnabled: Boolean,
 )
 
 data class RelayConfigActions(
@@ -92,5 +93,7 @@ data class SettingsActions(
     val onPublishCompatibilityModeChange: (Boolean) -> Unit,
     val onH264ProfilePreferenceChange: (H264ProfilePreference) -> Unit,
     val onShowPlaybackStatsChange: (Boolean) -> Unit,
+    val onLanMeshEnabledChange: (Boolean) -> Unit,
+    val onOpenNearby: () -> Unit,
     val onSave: () -> Unit,
 )

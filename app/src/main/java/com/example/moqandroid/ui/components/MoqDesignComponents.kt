@@ -19,8 +19,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -88,15 +93,19 @@ fun MoqPill(
     textColor: Color? = null,
     onClick: (() -> Unit)? = null,
 ) {
+    var focused by remember { mutableStateOf(false) }
     val clickModifier = if (onClick == null) {
         modifier
     } else {
-        modifier.clickable(enabled = enabled, onClick = onClick)
+        modifier
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(enabled = enabled, onClick = onClick)
     }
 
     Surface(
         color = if (selected) PrimaryColor else SurfaceMuted,
         shape = RoundedCornerShape(999.dp),
+        border = if (focused) BorderStroke(2.dp, PrimaryColor) else null,
         tonalElevation = 0.dp,
         modifier = clickModifier
             .widthIn(min = 72.dp, max = 128.dp)

@@ -28,7 +28,7 @@ class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
     private val media: MoqMediaStreamProducer,
     private val videoLayout: MoqTrackProducer?,
-    private val relayUrl: String,
+    private val connectionLabel: String,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
     private val attemptPlanner = H264EncoderAttemptPlanner()
@@ -39,7 +39,7 @@ class SurfaceVideoEncoder(
         broadcastName: String,
         audioConfig: AudioPublishConfig?,
     ) = withContext(Dispatchers.Default) {
-        val stats = PublishStatsTracker(relayUrl, broadcastName)
+        val stats = PublishStatsTracker(connectionLabel, broadcastName)
         var activeConfig = config
         var activeGeneration: Long? = null
         var trackStarted = false
@@ -120,7 +120,7 @@ class SurfaceVideoEncoder(
                 onEncodingStarted()
                 lifecycle.update(
                     PublisherState.Publishing(
-                        relayUrl = relayUrl,
+                        relayUrl = connectionLabel,
                         broadcastName = broadcastName,
                         width = attempt.config.width,
                         height = attempt.config.height,

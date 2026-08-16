@@ -1,5 +1,6 @@
 package com.example.moqandroid.ui.app
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,6 +35,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -163,6 +169,10 @@ private fun SettingsPanel(
     state: SettingsUiState,
     actions: SettingsActions,
 ) {
+    val lanMeshFocus = remember { FocusRequester() }
+    val nearbyFocus = remember { FocusRequester() }
+    val relayUrlFocus = remember { FocusRequester() }
+
     ClearFocusOnEntry("relay-settings")
     Page {
         Column(
@@ -215,9 +225,34 @@ private fun SettingsPanel(
             }
 
             MoqSettingSection(title = stringResource(R.string.connection_section)) {
+                ToggleSettingRow(
+                    label = stringResource(R.string.lan_mesh_enabled),
+                    note = stringResource(R.string.lan_mesh_enabled_note),
+                    checked = state.lanMeshEnabled,
+                    onCheckedChange = actions.onLanMeshEnabledChange,
+                    modifier = Modifier
+                        .focusRequester(lanMeshFocus)
+                        .focusProperties { down = nearbyFocus },
+                )
+                Spacer(Modifier.height(18.dp))
+                NavigationSettingRow(
+                    label = stringResource(R.string.nearby_title),
+                    note = stringResource(R.string.nearby_settings_note),
+                    onClick = actions.onOpenNearby,
+                    modifier = Modifier
+                        .focusRequester(nearbyFocus)
+                        .focusProperties {
+                            up = lanMeshFocus
+                            down = relayUrlFocus
+                        },
+                )
+                Spacer(Modifier.height(18.dp))
                 RelayUrlSettingRow(
                     value = state.relayUrl,
                     onValueChange = actions.onRelayUrlChange,
+                    modifier = Modifier
+                        .focusRequester(relayUrlFocus)
+                        .focusProperties { up = nearbyFocus },
                 )
             }
 
@@ -233,6 +268,34 @@ private fun SettingsPanel(
         }
         Spacer(Modifier.height(12.dp))
         PrimaryAction(stringResource(R.string.save), actions.onSave)
+    }
+}
+
+@Composable
+private fun NavigationSettingRow(
+    label: String,
+    note: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Surface(
+        color = if (focused) SurfaceMuted else SurfaceColor,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(if (focused) 2.dp else 1.dp, if (focused) PrimaryColor else BorderColor),
+        tonalElevation = 0.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+    ) {
+        MoqInfoRow(label = label, note = note) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = label,
+                tint = TextSecondary,
+            )
+        }
     }
 }
 
@@ -271,14 +334,17 @@ private fun PillDropdown(
     contentDescription: String,
     menu: @Composable () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Box {
         Surface(
             color = SurfaceMuted,
             shape = RoundedCornerShape(999.dp),
+            border = if (focused) BorderStroke(2.dp, PrimaryColor) else null,
             tonalElevation = 0.dp,
             modifier = Modifier
                 .widthIn(min = 96.dp, max = 132.dp)
                 .height(30.dp)
+                .onFocusChanged { focused = it.isFocused }
                 .clickable { onExpandedChange(true) },
         ) {
             Row(
@@ -315,11 +381,13 @@ private fun ToggleSettingRow(
     note: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     SettingRow(label = label, note = note) {
         MoqPill(
             text = if (checked) stringResource(R.string.system_audio_on) else stringResource(R.string.system_audio_off),
             selected = checked,
+            modifier = modifier,
             onClick = { onCheckedChange(!checked) },
         )
     }
@@ -391,6 +459,7 @@ private fun LanguageSettingRow(
 private fun RelayUrlSettingRow(
     value: String,
     onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     SettingRow(label = stringResource(R.string.relay_url_label), note = stringResource(R.string.relay_url_note)) {
         OutlinedTextField(
@@ -406,7 +475,7 @@ private fun RelayUrlSettingRow(
                 unfocusedIndicatorColor = BorderColor,
                 cursorColor = PrimaryColor,
             ),
-            modifier = Modifier
+            modifier = modifier
                 .widthIn(min = 150.dp, max = 220.dp)
                 .height(56.dp),
         )

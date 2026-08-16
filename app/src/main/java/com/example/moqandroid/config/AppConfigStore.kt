@@ -32,6 +32,10 @@ class AppConfigStore(context: Context) {
         return prefs.getBoolean(KEY_SHOW_PLAYBACK_STATS, true)
     }
 
+    fun loadLanMeshEnabled(): Boolean {
+        return prefs.getBoolean(KEY_LAN_MESH_ENABLED, false)
+    }
+
     fun saveRelayUrl(relayUrl: String) {
         prefs.edit()
             .putString(KEY_RELAY_URL, relayUrl.trim())
@@ -62,6 +66,12 @@ class AppConfigStore(context: Context) {
             .apply()
     }
 
+    fun saveLanMeshEnabled(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean(KEY_LAN_MESH_ENABLED, enabled)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "moq_android_config"
         private const val KEY_RELAY_URL = "relay_url"
@@ -69,5 +79,6 @@ class AppConfigStore(context: Context) {
         private const val KEY_PUBLISH_COMPATIBILITY_MODE = "publish_compatibility_mode"
         private const val KEY_H264_PROFILE = "h264_profile"
         private const val KEY_SHOW_PLAYBACK_STATS = "show_playback_stats"
+        private const val KEY_LAN_MESH_ENABLED = "lan_mesh_enabled"
     }
 }
