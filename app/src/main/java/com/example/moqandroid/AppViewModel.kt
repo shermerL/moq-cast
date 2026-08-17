@@ -190,6 +190,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val isNearbyScreenPublishPending: Boolean
+        get() = publishController.status.value.let { snapshot ->
+            snapshot.state == PublishState.Preparing && snapshot.target == PublishTarget.Lan
+        }
+
     init {
         currentScreen = when {
             initialLanMeshEnabled -> AppScreen.Nearby

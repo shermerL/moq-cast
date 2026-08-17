@@ -49,7 +49,6 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     private lateinit var projectionManager: MediaProjectionManager
     private lateinit var viewModel: AppViewModel
     private var playerScreen: PlayerScreen? = null
-    private var pendingNearbyScreenPublish = false
     private val playbackLayoutCoordinator = PlaybackLayoutCoordinator(
         view = { playerScreen },
         applyOrientation = ::applyPlaybackOrientation,
@@ -198,7 +197,6 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     }
 
     private fun requestPublish() {
-        pendingNearbyScreenPublish = false
         handlePublishRequest(
             viewModel.preparePublish(
                 hasCameraPermission = hasCameraPermission(),
@@ -209,12 +207,10 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
     }
 
     private fun requestNearbyScreenPublish() {
-        pendingNearbyScreenPublish = true
         val request = viewModel.prepareNearbyScreenPublish(
             hasRecordAudioPermission = hasRecordAudioPermission(),
             hasNotificationPermission = hasNotificationPermission(),
         )
-        if (request == PublishRequest.None) pendingNearbyScreenPublish = false
         handlePublishRequest(request)
     }
 
@@ -240,17 +236,20 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
             REQUEST_RECORD_AUDIO,
             REQUEST_CAMERA,
             -> {
-                if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    if (pendingNearbyScreenPublish) requestNearbyScreenPublish() else requestPublish()
+                if (permissionsGranted(grantResults)) {
+                    if (viewModel.isNearbyScreenPublishPending) {
+                        requestNearbyScreenPublish()
+                    } else {
+                        requestPublish()
+                    }
                 } else {
                     val message = when (requestCode) {
                         REQUEST_CAMERA -> localizedText(R.string.camera_permission_denied)
                         REQUEST_RECORD_AUDIO -> localizedText(R.string.audio_permission_denied)
                         else -> localizedText(R.string.screen_capture_permission_denied)
                     }
-                    if (pendingNearbyScreenPublish) {
+                    if (viewModel.isNearbyScreenPublishPending) {
                         viewModel.cancelNearbyScreenPublish(message)
-                        pendingNearbyScreenPublish = false
                     } else {
                         viewModel.failPublish(message)
                     }
@@ -265,17 +264,15 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         if (requestCode != REQUEST_SCREEN_CAPTURE) return
 
         if (resultCode != RESULT_OK || data == null) {
-            if (pendingNearbyScreenPublish) {
+            if (viewModel.isNearbyScreenPublishPending) {
                 viewModel.cancelNearbyScreenPublish(localizedText(R.string.screen_capture_permission_denied))
             } else {
                 viewModel.failPublish(localizedText(R.string.screen_capture_permission_denied))
             }
-            pendingNearbyScreenPublish = false
             return
         }
 
         viewModel.startScreenPublish(resultCode, data, resources.displayMetrics)
-        pendingNearbyScreenPublish = false
     }
 
     private fun showPlayerUi() {
@@ -443,3 +440,6 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         private const val LOG_TAG = "MoqAndroid"
     }
 }
+
+internal fun permissionsGranted(grantResults: IntArray): Boolean =
+    grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
