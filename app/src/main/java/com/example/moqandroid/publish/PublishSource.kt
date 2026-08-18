@@ -14,13 +14,13 @@ interface VideoPublishSource {
     val layoutTransitions: VideoLayoutTransitionCapability?
         get() = null
 
-    fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig)
+    suspend fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig)
 
-    fun detachEncoderSurface()
+    suspend fun detachEncoderSurface()
 
     fun pollFailure(): Throwable? = null
 
-    fun close()
+    suspend fun close()
 }
 
 data class VideoPublishPresentation(

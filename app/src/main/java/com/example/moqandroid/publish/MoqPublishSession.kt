@@ -8,14 +8,19 @@ import com.example.moqandroid.protocol.MOQCAST_CATALOG_SECTION_NAME
 import com.example.moqandroid.protocol.VIDEO_LAYOUT_TRACK_NAME
 import com.example.moqandroid.protocol.videoLayoutCatalogSection
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import uniffi.moq.MoqAudioProducer
 import uniffi.moq.MoqBroadcastProducer
 import uniffi.moq.MoqClient
 import uniffi.moq.MoqDimensions
 import uniffi.moq.MoqInit
 import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
+import uniffi.moq.MoqTrackProducer
 import uniffi.moq.MoqVideoProperties
 
 internal class MoqPublishSession(
@@ -36,7 +41,10 @@ internal class MoqPublishSession(
                 publishBroadcast(broadcast, source, broadcastName, config, audioSource)
             }
         } finally {
-            source.close()
+            withContext(NonCancellable) {
+                runCatching { source.close() }
+                    .onFailure { Log.w(LOG_TAG, "failed to close ${source.label} publish source", it) }
+            }
         }
     }
 
@@ -89,19 +97,22 @@ internal class MoqPublishSession(
         val media = broadcast.publishMedia(
             MoqInit(format = "avc3", data = byteArrayOf(), video = null),
         )
-        source.presentation?.let { presentation ->
-            val display = MoqDimensions(
-                width = presentation.displayWidth.toUInt(),
-                height = presentation.displayHeight.toUInt(),
-            )
-            val videoProperties = MoqVideoProperties(
-                display = display,
-                rotation = presentation.rotationDegrees.toDouble(),
-                flip = presentation.flip,
-            )
+        var videoLayout: MoqTrackProducer? = null
+        var audio: MoqAudioProducer? = null
+        try {
+            source.presentation?.let { presentation ->
+                val display = MoqDimensions(
+                    width = presentation.displayWidth.toUInt(),
+                    height = presentation.displayHeight.toUInt(),
+                )
+                val videoProperties = MoqVideoProperties(
+                    display = display,
+                    rotation = presentation.rotationDegrees.toDouble(),
+                    flip = presentation.flip,
+                )
 
-            // Manual omission checks: comment out the default declaration above and enable one block at a time.
-            // Test 1: omit video.display from the catalog.
+                // Manual omission checks: comment out the default declaration above and enable one block at a time.
+                // Test 1: omit video.display from the catalog.
 
 //            val videoProperties = MoqVideoProperties(
 //                display = null,
@@ -127,48 +138,47 @@ internal class MoqPublishSession(
 //                flip = null,
 //            )
 
-            broadcast.setVideoProperties(videoProperties)
-            Log.i(
-                LOG_TAG,
-                "publishing video format=avc3 " +
-                    "display=${presentation.displayWidth}x${presentation.displayHeight} " +
-                    "rotation=${presentation.rotationDegrees} flip=${presentation.flip}",
-            )
-        } ?: Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
+                broadcast.setVideoProperties(videoProperties)
+                Log.i(
+                    LOG_TAG,
+                    "publishing video format=avc3 " +
+                        "display=${presentation.displayWidth}x${presentation.displayHeight} " +
+                        "rotation=${presentation.rotationDegrees} flip=${presentation.flip}",
+                )
+            } ?: Log.i(LOG_TAG, "publishing video format=avc3 catalogRotation=unset")
 
-        val videoLayout = source.layoutTransitions?.let {
-            broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME, null).also {
-                broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
+            videoLayout = source.layoutTransitions?.let {
+                broadcast.publishTrack(VIDEO_LAYOUT_TRACK_NAME, null).also {
+                    broadcast.setCatalogSection(MOQCAST_CATALOG_SECTION_NAME, videoLayoutCatalogSection())
+                }
             }
-        }
-        val audio = audioSource?.config?.let { audioConfig ->
-            Log.i(
-                LOG_TAG,
-                "publishing audio track=0 codec=opus encoder=moq-native input=s16 " +
-                    "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
-                    "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
-            )
-            broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
-        }
+            audio = audioSource?.config?.let { audioConfig ->
+                Log.i(
+                    LOG_TAG,
+                    "publishing audio track=0 codec=opus encoder=moq-native input=s16 " +
+                        "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
+                        "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
+                )
+                broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
+            }
 
-        try {
             coroutineScope {
-                val audioJob = audio?.let { producer ->
-                    launch {
-                        runCatching {
-                            audioSource.capture(producer, timeline)
-                        }.onFailure { error ->
-                            if (error !is CancellationException) {
-                                Log.w(LOG_TAG, "audio capture failed", error)
-                                lifecycle.emit(
-                                    PublisherEvent.TrackError(
-                                        name = AUDIO_TRACK_NAME,
-                                        reason = error.message ?: error::class.java.name,
-                                    ),
-                                )
+                val audioJob = audioSource?.let { source ->
+                    audio?.let { producer ->
+                        launch {
+                            runCatching {
+                                source.capture(producer, timeline)
+                            }.onFailure { error ->
+                                if (error !is CancellationException) {
+                                    Log.w(LOG_TAG, "audio capture failed", error)
+                                    lifecycle.emit(
+                                        PublisherEvent.TrackError(
+                                            name = AUDIO_TRACK_NAME,
+                                            reason = error.message ?: error::class.java.name,
+                                        ),
+                                    )
+                                }
                             }
-                        }.also {
-                            runCatching { producer.finish() }
                         }
                     }
                 }
@@ -183,13 +193,28 @@ internal class MoqPublishSession(
                         lifecycle = lifecycle,
                     ).run(config.video, broadcastName, audioSource?.config)
                 } finally {
-                    audioJob?.cancel()
+                    withContext(NonCancellable) {
+                        audioJob?.cancelAndJoin()
+                    }
                 }
             }
         } finally {
-            videoLayout?.let { runCatching { it.finish() } }
+            audio?.let { finishAndClose("audio", it, it::finish) }
+            videoLayout?.let { finishAndClose("video layout", it, it::finish) }
+            finishAndClose("video", media, media::finish)
             runCatching { broadcast.finish() }
         }
+    }
+
+    private inline fun finishAndClose(
+        label: String,
+        producer: AutoCloseable,
+        finish: () -> Unit,
+    ) {
+        runCatching(finish)
+            .onFailure { Log.w(LOG_TAG, "failed to finish $label producer", it) }
+        runCatching { producer.close() }
+            .onFailure { Log.w(LOG_TAG, "failed to close $label producer", it) }
     }
 
     private suspend fun publishFileBroadcast(

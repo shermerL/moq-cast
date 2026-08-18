@@ -18,6 +18,8 @@ import com.example.moqandroid.protocol.VideoLayoutEvent
 import com.example.moqandroid.protocol.VideoLayoutPhase
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ScreenPublishSource(
     context: Context,
@@ -71,36 +73,45 @@ class ScreenPublishSource(
         handler.post(resizeRunnable)
     }
 
-    override fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig) {
-        detachEncoderSurface()
-        Log.i(
-            LOG_TAG,
-            "attaching screen source virtualDisplay=${config.width}x${config.height} " +
-                "densityDpi=$densityDpi encoderInput=${config.width}x${config.height}",
-        )
-        val currentDisplay = virtualDisplay
-        if (currentDisplay == null) {
-            virtualDisplay = projection.createVirtualDisplay(
-                "MoqScreenPublish",
-                config.width,
-                config.height,
-                densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                surface,
-                null,
-                null,
+    override suspend fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig) {
+        withContext(Dispatchers.Main.immediate) {
+            check(!closed) { "Screen source is closed." }
+            detachEncoderSurfaceOnMain()
+            Log.i(
+                LOG_TAG,
+                "attaching screen source virtualDisplay=${config.width}x${config.height} " +
+                    "densityDpi=$densityDpi encoderInput=${config.width}x${config.height}",
             )
-        } else {
-            currentDisplay.resize(config.width, config.height, densityDpi)
-            currentDisplay.surface = surface
+            val currentDisplay = virtualDisplay
+            if (currentDisplay == null) {
+                virtualDisplay = projection.createVirtualDisplay(
+                    "MoqScreenPublish",
+                    config.width,
+                    config.height,
+                    densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    surface,
+                    null,
+                    null,
+                )
+            } else {
+                currentDisplay.resize(config.width, config.height, densityDpi)
+                currentDisplay.surface = surface
+            }
+            virtualDisplayWidth = config.width
+            virtualDisplayHeight = config.height
+            resetGeometryCandidate()
+            outputSuspended = false
         }
-        virtualDisplayWidth = config.width
-        virtualDisplayHeight = config.height
-        resetGeometryCandidate()
-        outputSuspended = false
     }
 
-    override fun detachEncoderSurface() {
+    override suspend fun detachEncoderSurface() {
+        withContext(Dispatchers.Main.immediate) {
+            detachEncoderSurfaceOnMain()
+        }
+    }
+
+    private fun detachEncoderSurfaceOnMain() {
         if (virtualDisplay != null) {
             Log.i(LOG_TAG, "detaching screen source encoder surface")
         }
@@ -127,13 +138,16 @@ class ScreenPublishSource(
         }
     }
 
-    override fun close() {
-        if (closed) return
-        closed = true
-        handler.removeCallbacks(resizeRunnable)
-        displayManager.unregisterDisplayListener(displayListener)
-        virtualDisplay?.release()
-        virtualDisplay = null
+    override suspend fun close() {
+        withContext(Dispatchers.Main.immediate) {
+            if (closed) return@withContext
+            closed = true
+            handler.removeCallbacks(resizeRunnable)
+            displayManager.unregisterDisplayListener(displayListener)
+            detachEncoderSurfaceOnMain()
+            virtualDisplay?.release()
+            virtualDisplay = null
+        }
     }
 
     @Suppress("DEPRECATION")

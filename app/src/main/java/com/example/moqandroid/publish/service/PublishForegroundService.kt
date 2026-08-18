@@ -44,10 +44,12 @@ import com.example.moqandroid.publish.screen.SystemAudioCapture
 import com.example.moqandroid.publish.screen.encoderConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
@@ -127,8 +129,6 @@ class PublishForegroundService : Service() {
     }
 
     private fun startPublishing(intent: Intent) {
-        cancelPublishJob()
-
         val relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty()
         val broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty()
         val sourceType = intent.publishSourceType()
@@ -139,25 +139,26 @@ class PublishForegroundService : Service() {
         }
         val generation = statusFacade.beginPublish(target)
         publishGeneration = generation
-        val lanPublishLease = claimLanPublishLease(intent, sourceType)
-        val sharedOrigin = lanPublishLease?.origin()
-
-        if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
-            lanPublishLease?.close()
-            statusFacade.fail(generation, "The LAN mesh publish reservation is no longer available.")
-            stopSelf()
-            return
-        }
 
         if (relayUrl.isBlank() || broadcastName.isBlank()) {
-            lanPublishLease?.close()
+            cancelPublishJob()
             statusFacade.fail(generation, getString(R.string.publish_service_missing_args))
             stopSelf()
             return
         }
 
-        publishJob = serviceScope.launch {
+        val previousJob = publishJob
+        val nextJob = serviceScope.launch(start = CoroutineStart.LAZY) {
+            previousJob?.cancelAndJoin()
+            if (generation != publishGeneration) return@launch
+
+            val lanPublishLease = claimLanPublishLease(intent, sourceType)
+            val sharedOrigin = lanPublishLease?.origin()
             try {
+                if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
+                    statusFacade.fail(generation, "The LAN mesh publish reservation is no longer available.")
+                    return@launch
+                }
                 runCatching {
                     when (sourceType) {
                         PublishSourceType.Camera -> publishCamera(intent, relayUrl, broadcastName, generation)
@@ -184,6 +185,8 @@ class PublishForegroundService : Service() {
                 if (generation == publishGeneration) stopSelf()
             }
         }
+        publishJob = nextJob
+        nextJob.start()
     }
 
     private suspend fun publishScreen(
