@@ -100,34 +100,6 @@ internal class MoqPublishSession(
                     rotation = presentation.rotationDegrees.toDouble(),
                     flip = presentation.flip,
                 )
-
-                // Manual omission checks: comment out the default declaration above and enable one block at a time.
-                // Test 1: omit video.display from the catalog.
-
-//            val videoProperties = MoqVideoProperties(
-//                display = null,
-//                rotation = presentation.rotationDegrees.toDouble(),
-//                flip = presentation.flip,
-//            )
-
-
-            // Test 2: omit video.rotation from the catalog.
-
-//            val videoProperties = MoqVideoProperties(
-//                display = display,
-//                rotation = null,
-//                flip = presentation.flip,
-//            )
-
-
-            // Test 3: omit video.flip from the catalog.
-
-//            val videoProperties = MoqVideoProperties(
-//                display = display,
-//                rotation = presentation.rotationDegrees.toDouble(),
-//                flip = null,
-//            )
-
                 broadcast.setVideoProperties(videoProperties)
                 Log.i(
                     LOG_TAG,

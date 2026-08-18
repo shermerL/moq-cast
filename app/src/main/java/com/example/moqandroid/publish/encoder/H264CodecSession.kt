@@ -3,6 +3,7 @@ package com.example.moqandroid.publish.encoder
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.Build
 import android.os.Bundle
 import android.view.Surface
 import java.nio.ByteBuffer
@@ -16,6 +17,9 @@ internal sealed interface H264CodecOutput {
         val height: Int?,
         val spsBytes: Int,
         val ppsBytes: Int,
+        val outputReorderDepth: Int?,
+        val maxBFrames: Int?,
+        val latencyFrames: Int?,
     ) : H264CodecOutput
 
     data class AccessUnit(
@@ -86,12 +90,16 @@ internal class H264CodecSession private constructor(
         }
 
         private fun EncoderAttempt.mediaFormat(): MediaFormat {
+            val realtime = h264RealtimeEncoderOptions(Build.VERSION.SDK_INT)
             return MediaFormat.createVideoFormat(MIME_AVC, config.width, config.height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, config.iFrameIntervalSeconds)
                 setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+                setInteger(MediaFormat.KEY_PRIORITY, realtime.priority)
+                setInteger(MediaFormat.KEY_LATENCY, realtime.latencyFrames)
+                realtime.maxBFrames?.let { setInteger(MediaFormat.KEY_MAX_B_FRAMES, it) }
                 profile?.let { setInteger(MediaFormat.KEY_PROFILE, it) }
             }
         }
@@ -111,6 +119,9 @@ internal class H264CodecSession private constructor(
                 height = integerOrNull(MediaFormat.KEY_HEIGHT),
                 spsBytes = sps?.size ?: 0,
                 ppsBytes = pps?.size ?: 0,
+                outputReorderDepth = integerOrNull(MediaFormat.KEY_OUTPUT_REORDER_DEPTH),
+                maxBFrames = integerOrNull(MediaFormat.KEY_MAX_B_FRAMES),
+                latencyFrames = integerOrNull(MediaFormat.KEY_LATENCY),
             )
         }
 
@@ -135,4 +146,18 @@ internal class H264CodecSession private constructor(
         private const val MIME_AVC = "video/avc"
         private const val UNKNOWN_ENCODER_NAME = "unknown"
     }
+}
+
+internal data class H264RealtimeEncoderOptions(
+    val priority: Int,
+    val latencyFrames: Int,
+    val maxBFrames: Int?,
+)
+
+internal fun h264RealtimeEncoderOptions(sdkInt: Int): H264RealtimeEncoderOptions {
+    return H264RealtimeEncoderOptions(
+        priority = 0,
+        latencyFrames = 1,
+        maxBFrames = 0.takeIf { sdkInt >= Build.VERSION_CODES.Q },
+    )
 }

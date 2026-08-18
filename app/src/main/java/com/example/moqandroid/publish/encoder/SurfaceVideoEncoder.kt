@@ -188,6 +188,9 @@ internal class SurfaceVideoEncoder(
                         "H.264 encoder output format " +
                             "size=${output.width ?: "unknown"}x${output.height ?: "unknown"} " +
                             "spsBytes=${output.spsBytes} ppsBytes=${output.ppsBytes} " +
+                            "reorderDepth=${output.outputReorderDepth ?: "unknown"} " +
+                            "maxBFrames=${output.maxBFrames ?: "unknown"} " +
+                            "latencyFrames=${output.latencyFrames ?: "unknown"} " +
                             "catalogFormat=avc3 catalogRotation=unset",
                     )
                 }

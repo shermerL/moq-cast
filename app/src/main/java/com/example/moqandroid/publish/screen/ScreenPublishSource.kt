@@ -203,9 +203,7 @@ class ScreenPublishSource(
                 "targetEncoder=${nextConfig.width}x${nextConfig.height}",
         )
         if (nextConfig.width == lastRequestedConfig.width && nextConfig.height == lastRequestedConfig.height) {
-            if (nextConfig.width == virtualDisplayWidth && nextConfig.height == virtualDisplayHeight) {
-                resumeOutputAfterCancelledResize()
-            }
+            resumeOutputAfterCancelledResize()
             return
         }
 
@@ -229,8 +227,7 @@ class ScreenPublishSource(
             geometry.metrics.heightPixels,
         )
         val axisChanged = geometry.display.rotation.swapsAxes() != stableDisplayRotation.swapsAxes()
-        val sizeChanged = nextConfig.width != virtualDisplayWidth || nextConfig.height != virtualDisplayHeight
-        if (!axisChanged && !sizeChanged) return
+        if (!requiresScreenLayoutTransition(nextConfig, lastRequestedConfig, axisChanged)) return
         val activeGeneration = activeLayoutGeneration
         val committedTargetChanged =
             activeGeneration != null &&
