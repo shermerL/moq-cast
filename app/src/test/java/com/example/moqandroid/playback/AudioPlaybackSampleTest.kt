@@ -37,4 +37,33 @@ class AudioPlaybackSampleTest {
         assertEquals(300_000L, timing.positionUs)
         assertEquals(5_300_000_000L, timing.targetNanoTimeNs)
     }
+
+    @Test
+    fun continuousAudioFramesStayOnTheSameTimeline() {
+        val timeline = AudioFrameTimeline(sampleRate = 48_000)
+
+        assertEquals(null, timeline.advance(timestampUs = 1_000_000L, frameSamples = 960))
+        assertEquals(null, timeline.advance(timestampUs = 1_020_000L, frameSamples = 960))
+    }
+
+    @Test
+    fun skippedAudioFrameReportsTimelineDiscontinuity() {
+        val timeline = AudioFrameTimeline(sampleRate = 48_000)
+
+        timeline.advance(timestampUs = 1_000_000L, frameSamples = 960)
+        val discontinuity = timeline.advance(timestampUs = 1_040_000L, frameSamples = 960)
+
+        assertEquals(1_020_000L, discontinuity?.expectedTimestampUs)
+        assertEquals(1_040_000L, discontinuity?.actualTimestampUs)
+        assertEquals(20_000L, discontinuity?.deltaUs)
+    }
+
+    @Test
+    fun smallTimestampJitterDoesNotResetPlayback() {
+        val timeline = AudioFrameTimeline(sampleRate = 48_000)
+
+        timeline.advance(timestampUs = 1_000_000L, frameSamples = 960)
+
+        assertEquals(null, timeline.advance(timestampUs = 1_022_000L, frameSamples = 960))
+    }
 }

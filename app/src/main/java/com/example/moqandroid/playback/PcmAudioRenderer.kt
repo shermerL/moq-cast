@@ -30,6 +30,7 @@ internal class PcmAudioRenderer(
 ) : AutoCloseable {
     private val track: AudioTrack
     private val stats = AudioRenderStats(logTag, audio)
+    private val timeline = AudioFrameTimeline(format.sampleRate)
 
     init {
         val minBuffer = AudioTrack.getMinBufferSize(
@@ -76,6 +77,7 @@ internal class PcmAudioRenderer(
             "PCM buffer is not aligned to ${format.bytesPerSampleFrame}-byte sample frames"
         }
         val frameSamples = data.size / format.bytesPerSampleFrame
+        handleTimeline(timestampUs, frameSamples)
         clock?.queueFrame(timestampUs, frameSamples)
 
         var offset = 0
@@ -94,6 +96,7 @@ internal class PcmAudioRenderer(
             "PCM buffer is not aligned to ${format.bytesPerSampleFrame}-byte sample frames"
         }
         val frameSamples = size / format.bytesPerSampleFrame
+        handleTimeline(timestampUs, frameSamples)
         clock?.queueFrame(timestampUs, frameSamples)
 
         while (data.hasRemaining()) {
@@ -114,6 +117,20 @@ internal class PcmAudioRenderer(
         val playbackHeadFrames = track.playbackHeadPosition.toLong()
         clock?.commitFrame(playbackHeadFrames)
         stats.onFrame(size, timestampUs, playbackHeadFrames)
+    }
+
+    private fun handleTimeline(timestampUs: Long, frameSamples: Int) {
+        val discontinuity = timeline.advance(timestampUs, frameSamples) ?: return
+        Log.w(
+            logTag,
+            "audio timeline discontinuity track=${audio.name} " +
+                "expectedTsUs=${discontinuity.expectedTimestampUs} actualTsUs=${discontinuity.actualTimestampUs} " +
+                "deltaUs=${discontinuity.deltaUs} action=flush-reanchor",
+        )
+        track.pause()
+        track.flush()
+        clock?.reanchor(track, timestampUs)
+        track.play()
     }
 
     private fun checkAudioWrite(written: Int) {

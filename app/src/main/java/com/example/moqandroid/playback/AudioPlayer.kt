@@ -69,6 +69,19 @@ class AudioPlaybackClock(sampleRate: Int) {
         submittedFrames += frameSamples
     }
 
+    fun reanchor(track: AudioTrack, timestampUs: Long) = synchronized(lock) {
+        if (this.track !== track) return@synchronized
+        playbackHeadWraps = 0L
+        previousPlaybackHead = 0L
+        lastPlaybackHeadFrames = 0L
+        lastTimestampFrames = -1L
+        lastTimestampNanoTime = -1L
+        val playbackHeadFrames = playbackHeadFramesLocked(track)
+        anchorStreamUs = timestampUs
+        anchorSubmittedFrames = playbackHeadFrames
+        submittedFrames = playbackHeadFrames
+    }
+
     fun commitFrame(playbackHeadFrames: Long) = synchronized(lock) {
         val extendedPlaybackHead = extendPlaybackHead(playbackHeadFrames)
         lastPlaybackHeadFrames = maxOf(lastPlaybackHeadFrames, extendedPlaybackHead)
@@ -160,5 +173,33 @@ internal data class AudioPlaybackSample(
     }
 }
 
+internal data class AudioTimelineDiscontinuity(
+    val expectedTimestampUs: Long,
+    val actualTimestampUs: Long,
+) {
+    val deltaUs: Long = actualTimestampUs - expectedTimestampUs
+}
+
+internal class AudioFrameTimeline(private val sampleRate: Int) {
+    private var nextTimestampUs: Long? = null
+
+    fun advance(timestampUs: Long, frameSamples: Int): AudioTimelineDiscontinuity? {
+        require(frameSamples > 0)
+        val durationUs = frameSamples * 1_000_000L / sampleRate
+        val expectedTimestampUs = nextTimestampUs
+        nextTimestampUs = timestampUs + durationUs
+        if (expectedTimestampUs == null) return null
+
+        val deltaUs = timestampUs - expectedTimestampUs
+        val toleranceUs = maxOf(AUDIO_TIMESTAMP_TOLERANCE_US, durationUs / 2)
+        return if (kotlin.math.abs(deltaUs) > toleranceUs) {
+            AudioTimelineDiscontinuity(expectedTimestampUs, timestampUs)
+        } else {
+            null
+        }
+    }
+}
+
 private const val AUDIO_TIMESTAMP_MAX_AGE_NS = 5_000_000_000L
 private const val AUDIO_TIMESTAMP_MAX_FUTURE_NS = 1_000_000_000L
+private const val AUDIO_TIMESTAMP_TOLERANCE_US = 2_000L
