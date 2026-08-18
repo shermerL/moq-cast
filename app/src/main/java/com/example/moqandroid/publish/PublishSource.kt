@@ -32,7 +32,6 @@ data class VideoPublishPresentation(
 
 enum class PublishSourceType(val storageValue: String) {
     Camera("camera"),
-    File("file"),
     Screen("screen");
 
     companion object {

@@ -3,7 +3,6 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -22,7 +21,7 @@
         <service
             android:name=".publish.service.PublishForegroundService"
             android:exported="false"
-            android:foregroundServiceType="camera|dataSync|mediaProjection|microphone" />
+            android:foregroundServiceType="camera|mediaProjection|microphone" />
 
         <activity
             android:name=".MainActivity"

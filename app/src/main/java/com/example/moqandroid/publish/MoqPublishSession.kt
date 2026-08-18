@@ -3,7 +3,6 @@ package com.example.moqandroid.publish
 import android.util.Log
 import com.example.moqandroid.publish.audio.AudioPublishSource
 import com.example.moqandroid.publish.encoder.SurfaceVideoEncoder
-import com.example.moqandroid.publish.file.CmafFilePublishSource
 import com.example.moqandroid.protocol.MOQCAST_CATALOG_SECTION_NAME
 import com.example.moqandroid.protocol.VIDEO_LAYOUT_TRACK_NAME
 import com.example.moqandroid.protocol.videoLayoutCatalogSection
@@ -45,15 +44,6 @@ internal class MoqPublishSession(
                 runCatching { source.close() }
                     .onFailure { Log.w(LOG_TAG, "failed to close ${source.label} publish source", it) }
             }
-        }
-    }
-
-    suspend fun publishFile(
-        source: CmafFilePublishSource,
-        broadcastName: String,
-    ) {
-        withBroadcast(broadcastName) { broadcast ->
-            publishFileBroadcast(broadcast, source, broadcastName)
         }
     }
 
@@ -215,44 +205,6 @@ internal class MoqPublishSession(
             .onFailure { Log.w(LOG_TAG, "failed to finish $label producer", it) }
         runCatching { producer.close() }
             .onFailure { Log.w(LOG_TAG, "failed to close $label producer", it) }
-    }
-
-    private suspend fun publishFileBroadcast(
-        broadcast: MoqBroadcastProducer,
-        source: CmafFilePublishSource,
-        broadcastName: String,
-    ) {
-        Log.i(LOG_TAG, "publishing file=${source.file.displayName} format=fmp4")
-        val media = broadcast.publishMediaStream(
-            MoqInit(format = "fmp4", data = byteArrayOf(), video = null),
-        )
-        source.presentation?.let { presentation ->
-            broadcast.setVideoProperties(
-                MoqVideoProperties(
-                    display = MoqDimensions(
-                        width = presentation.displayWidth.toUInt(),
-                        height = presentation.displayHeight.toUInt(),
-                    ),
-                    rotation = presentation.rotationDegrees.toDouble(),
-                    flip = presentation.flip,
-                ),
-            )
-        }
-        var mediaFinished = false
-        try {
-            source.publish(
-                media = media,
-                relayUrl = relayUrl,
-                broadcastName = broadcastName,
-                lifecycle = lifecycle,
-            )
-            media.finish()
-            mediaFinished = true
-        } finally {
-            if (!mediaFinished) runCatching { media.finish() }
-            media.close()
-            runCatching { broadcast.finish() }
-        }
     }
 
     companion object {

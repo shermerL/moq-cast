@@ -12,9 +12,6 @@ import com.example.moqandroid.publish.camera.CameraPublishCapabilityResolver
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
-import com.example.moqandroid.publish.file.ProbedPublishFile
-import com.example.moqandroid.publish.file.PublishFileCompatibility
-import com.example.moqandroid.publish.file.unsupportedMessage
 import com.example.moqandroid.publish.service.PublishForegroundService
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
@@ -30,7 +27,7 @@ class PublishController(private val context: Context) {
             return PublishPreparation(PublishRequest.None, null, "Broadcast name cannot be empty.")
         }
 
-        if (input.source != PublishSourceType.File && !CodecSupport.hasEncoderFor(MIME_AVC)) {
+        if (!CodecSupport.hasEncoderFor(MIME_AVC)) {
             return PublishPreparation(
                 PublishRequest.None,
                 broadcastName,
@@ -121,27 +118,6 @@ class PublishController(private val context: Context) {
                 broadcastName,
                 "Requesting screen capture permission ...\nbroadcast=$broadcastName",
             )
-            PublishSourceType.File -> {
-                val file = input.publishFile
-                    ?: return PublishPreparation(PublishRequest.None, broadcastName, "Choose a local video first.")
-                if (file.compatibility == PublishFileCompatibility.Unsupported) {
-                    return PublishPreparation(
-                        PublishRequest.None,
-                        broadcastName,
-                        file.unsupportedMessage(),
-                    )
-                }
-                PublishPreparation(
-                    PublishRequest.StartFile,
-                    broadcastName,
-                    "Starting ${file.displayName} with " +
-                        if (file.compatibility == PublishFileCompatibility.DirectFmp4) {
-                            "CMAF passthrough ...\nbroadcast=$broadcastName"
-                        } else {
-                            "CMAF transmuxing ...\nbroadcast=$broadcastName"
-                        },
-                )
-            }
         }
     }
 
@@ -175,15 +151,6 @@ class PublishController(private val context: Context) {
             includeMicrophone = request.includeMicrophone,
             lensFacing = request.lensFacing,
             qualityPreset = request.qualityPreset,
-        )
-    }
-
-    fun startFile(request: FilePublishStartRequest) {
-        PublishForegroundService.startFile(
-            context = context,
-            relayUrl = request.relayConfig.relayUrl,
-            broadcastName = request.broadcastName,
-            uri = request.file.uri,
         )
     }
 
@@ -237,7 +204,6 @@ data class PublishPreparationInput(
     val includeMicrophone: Boolean,
     val cameraLensFacing: CameraLensFacing,
     val cameraQualityPreset: CameraQualityPreset,
-    val publishFile: ProbedPublishFile?,
     val permissions: PublishPermissions,
     val target: PublishTarget = PublishTarget.Relay,
 )
@@ -273,12 +239,6 @@ data class CameraPublishStartRequest(
     val qualityPreset: CameraQualityPreset,
 )
 
-data class FilePublishStartRequest(
-    val relayConfig: RelayConfig,
-    val broadcastName: String,
-    val file: ProbedPublishFile,
-)
-
 sealed interface PublishRequest {
     data object None : PublishRequest
     data object RequestCamera : PublishRequest
@@ -286,5 +246,4 @@ sealed interface PublishRequest {
     data object RequestNotifications : PublishRequest
     data object RequestScreenCapture : PublishRequest
     data object StartCamera : PublishRequest
-    data object StartFile : PublishRequest
 }

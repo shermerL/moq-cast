@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -33,10 +32,6 @@ import com.example.moqandroid.publish.camera.CameraPublishSource
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
-import com.example.moqandroid.publish.file.CmafFilePublishSource
-import com.example.moqandroid.publish.file.PublishFileCompatibility
-import com.example.moqandroid.publish.file.unsupportedMessage
-import com.example.moqandroid.publish.file.PublishFileProbe
 import com.example.moqandroid.publish.screen.ScreenPublishConfig
 import com.example.moqandroid.publish.screen.ScreenPublishSource
 import com.example.moqandroid.publish.screen.ScreenVideoConfig
@@ -118,16 +113,6 @@ class PublishForegroundService : Service() {
         super.onDestroy()
     }
 
-    override fun onTimeout(startId: Int, fgsType: Int) {
-        Log.w(LOG_TAG, "publish foreground service timed out type=$fgsType startId=$startId")
-        statusFacade.fail(
-            publishGeneration,
-            "File publishing exceeded the Android foreground service time limit.",
-        )
-        stopPublishing(updateStopped = false)
-        stopSelf(startId)
-    }
-
     private fun startPublishing(intent: Intent) {
         val relayUrl = intent.getStringExtra(EXTRA_RELAY_URL).orEmpty()
         val broadcastName = intent.getStringExtra(EXTRA_BROADCAST_NAME).orEmpty()
@@ -169,7 +154,6 @@ class PublishForegroundService : Service() {
                             sharedOrigin,
                             generation,
                         )
-                        PublishSourceType.File -> publishFile(intent, relayUrl, broadcastName, generation)
                     }
                 }.onFailure { error ->
                     if (error is CancellationException) {
@@ -275,27 +259,6 @@ class PublishForegroundService : Service() {
         )
     }
 
-    private suspend fun publishFile(
-        intent: Intent,
-        relayUrl: String,
-        broadcastName: String,
-        generation: Long,
-    ) {
-        val uri = intent.getStringExtra(EXTRA_FILE_URI)?.let(Uri::parse)
-            ?: error("The selected file URI is missing.")
-        val file = PublishFileProbe(this).probe(uri)
-        require(file.compatibility != PublishFileCompatibility.Unsupported) {
-            file.unsupportedMessage()
-        }
-        MoqPublishSession(
-            relayUrl = relayUrl,
-            lifecycle = statusFacade.eventSink(generation),
-        ).publishFile(
-            source = CmafFilePublishSource(this, file),
-            broadcastName = broadcastName,
-        )
-    }
-
     private fun MediaProjection.registerStopCallback(job: Job?): MediaProjection.Callback {
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
@@ -351,7 +314,6 @@ class PublishForegroundService : Service() {
                 getString(
                     when (sourceType) {
                         PublishSourceType.Camera -> R.string.camera_publish_notification_title
-                        PublishSourceType.File -> R.string.file_publish_notification_title
                         PublishSourceType.Screen -> R.string.screen_publish_notification_title
                     },
                 ),
@@ -370,7 +332,6 @@ class PublishForegroundService : Service() {
                 PublishSourceType.Camera -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
                     if (includeMicrophone) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
                 PublishSourceType.Screen -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                PublishSourceType.File -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             }
             startForeground(
                 NOTIFICATION_ID,
@@ -437,7 +398,6 @@ class PublishForegroundService : Service() {
         private const val EXTRA_ENCODER_POLICY = "encoder_policy"
         private const val EXTRA_H264_PROFILE = "h264_profile"
         private const val EXTRA_SOURCE_TYPE = "source_type"
-        private const val EXTRA_FILE_URI = "file_uri"
         private const val EXTRA_COMPATIBILITY_MODE = "compatibility_mode"
         private const val EXTRA_LAN_MESH = "lan_mesh"
         private const val EXTRA_LAN_PUBLISH_RESERVATION_ID = "lan_publish_reservation_id"
@@ -500,22 +460,6 @@ class PublishForegroundService : Service() {
                 .putExtra(EXTRA_CAMERA_LENS_FACING, lensFacing.storageValue)
                 .putExtra(EXTRA_CAMERA_QUALITY_PRESET, qualityPreset.storageValue)
                 .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.Camera.storageValue)
-            startService(context, intent)
-        }
-
-        fun startFile(
-            context: Context,
-            relayUrl: String,
-            broadcastName: String,
-            uri: Uri,
-        ) {
-            activeSourceType = PublishSourceType.File
-            val intent = Intent(context, PublishForegroundService::class.java)
-                .setAction(ACTION_START_PUBLISH)
-                .putExtra(EXTRA_RELAY_URL, relayUrl)
-                .putExtra(EXTRA_BROADCAST_NAME, broadcastName)
-                .putExtra(EXTRA_FILE_URI, uri.toString())
-                .putExtra(EXTRA_SOURCE_TYPE, PublishSourceType.File.storageValue)
             startService(context, intent)
         }
 

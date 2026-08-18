@@ -6,9 +6,9 @@ This file documents notable changes for each project version.
 
 ## Unreleased
 
-尚无变更。
+- 移除尚未成熟的 Android CMAF/fMP4 文件发布功能
 
-No changes yet.
+- Remove the experimental Android CMAF/fMP4 file publishing path
 
 ## 0.4.0 (Debug) - 2026-08-10
 

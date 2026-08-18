@@ -5,7 +5,6 @@ import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
-import com.example.moqandroid.publish.file.PublishFileState
 
 data class RelayConfigUiState(
     val relayUrl: String,
@@ -45,7 +44,6 @@ data class PublishPanelState(
     val includeMicrophone: Boolean,
     val cameraLensFacing: CameraLensFacing,
     val cameraQualityPreset: CameraQualityPreset,
-    val publishFileState: PublishFileState,
     val status: String,
     val mode: PublishPanelMode,
 )
@@ -58,7 +56,6 @@ data class PublishPanelActions(
     val onIncludeMicrophoneChange: (Boolean) -> Unit,
     val onCameraLensFacingChange: (CameraLensFacing) -> Unit,
     val onCameraQualityPresetChange: (CameraQualityPreset) -> Unit,
-    val onChoosePublishFile: () -> Unit,
     val onPublish: () -> Unit,
     val onStopPublish: () -> Unit,
 )
