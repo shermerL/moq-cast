@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.media.projection.MediaProjection
 import android.os.Build
 import android.util.Log
+import com.example.moqandroid.publish.PublishTimeline
 import com.example.moqandroid.publish.audio.AudioPublishConfig
 import com.example.moqandroid.publish.audio.AudioPublishSource
 import com.example.moqandroid.publish.audio.PcmAudioCapture
@@ -16,13 +17,14 @@ internal class SystemAudioCapture(
     override val config: AudioPublishConfig,
     private val logTag: String,
 ) : AudioPublishSource {
-    override suspend fun capture(producer: MoqAudioProducer) {
+    override suspend fun capture(producer: MoqAudioProducer, timeline: PublishTimeline) {
         require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "System audio capture requires Android 10+."
         }
         PcmAudioCapture(
             producer = producer,
             config = config,
+            timeline = timeline,
             sourceLabel = "system audio",
             logTag = logTag,
             createRecord = { audioFormat, bufferSize ->

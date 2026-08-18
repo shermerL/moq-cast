@@ -4,6 +4,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.os.SystemClock
 import android.util.Log
+import com.example.moqandroid.publish.PublishTimeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -14,6 +15,7 @@ import kotlin.coroutines.coroutineContext
 internal class PcmAudioCapture(
     private val producer: MoqAudioProducer,
     private val config: AudioPublishConfig,
+    private val timeline: PublishTimeline,
     private val sourceLabel: String,
     private val logTag: String,
     private val createRecord: (AudioFormat, Int) -> AudioRecord,
@@ -48,6 +50,7 @@ internal class PcmAudioCapture(
         }
         val buffer = ByteArray(config.bytesPerFrame())
         val stats = AudioCaptureStats(sourceLabel, logTag)
+        val timestamps = timeline.audio(config.sampleRate)
         var submittedSamples = 0L
 
         try {
@@ -67,15 +70,16 @@ internal class PcmAudioCapture(
                 if (read == 0) continue
 
                 val data = buffer.copyOf(read)
-                val timestampUs = submittedSamples * 1_000_000L / config.sampleRate
+                val capturedSamples = read / config.bytesPerSampleFrame()
+                val timestampUs = timestamps.timestampUs(submittedSamples, capturedSamples)
                 producer.write(
                     MoqAudioFrame(
                         timestampUs = timestampUs.toULong(),
                         data = data,
                     ),
                 )
-                stats.onFrame(data)
-                submittedSamples += read / config.bytesPerSampleFrame()
+                stats.onFrame(data, timestampUs, timeline.elapsedUs())
+                submittedSamples += capturedSamples
             }
         } finally {
             runCatching { record.stop() }
@@ -95,7 +99,7 @@ private class AudioCaptureStats(
     private var silentSeconds = 0
     private var lastUpdateMs = SystemClock.elapsedRealtime()
 
-    fun onFrame(data: ByteArray) {
+    fun onFrame(data: ByteArray, timestampUs: Long, sessionElapsedUs: Long) {
         frames += 1
         bytes += data.size
 
@@ -117,7 +121,8 @@ private class AudioCaptureStats(
         Log.i(
             logTag,
             "$sourceLabel audio capture frames=$frames bytes=$bytes nonZeroBytes=$nonZeroBytes " +
-                "peak=$peak silentSeconds=$silentSeconds",
+                "peak=$peak silentSeconds=$silentSeconds streamTsUs=$timestampUs " +
+                "timelineLagUs=${sessionElapsedUs - timestampUs}",
         )
 
         frames = 0

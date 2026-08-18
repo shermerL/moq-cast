@@ -9,6 +9,8 @@ import android.view.Surface
 import com.example.moqandroid.publish.PublisherEvent
 import com.example.moqandroid.publish.PublisherLifecycleEventSink
 import com.example.moqandroid.publish.PublisherState
+import com.example.moqandroid.publish.PublishTimeline
+import com.example.moqandroid.publish.VideoPublishTimeline
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
 import com.example.moqandroid.publish.VideoPublishTransition
@@ -19,15 +21,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import uniffi.moq.MoqMediaStreamProducer
 import uniffi.moq.MoqFrame
+import uniffi.moq.MoqMediaProducer
 import uniffi.moq.MoqTrackProducer
 import kotlin.coroutines.coroutineContext
 
-class SurfaceVideoEncoder(
+internal class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
-    private val media: MoqMediaStreamProducer,
+    private val media: MoqMediaProducer,
     private val videoLayout: MoqTrackProducer?,
+    private val timeline: PublishTimeline,
     private val connectionLabel: String,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
@@ -43,6 +46,7 @@ class SurfaceVideoEncoder(
         var activeConfig = config
         var activeGeneration: Long? = null
         var trackStarted = false
+        val videoTimeline = timeline.video()
 
         try {
             while (coroutineContext.isActive) {
@@ -51,6 +55,7 @@ class SurfaceVideoEncoder(
                     broadcastName = broadcastName,
                     audioConfig = audioConfig,
                     stats = stats,
+                    videoTimeline = videoTimeline,
                     generation = activeGeneration,
                     onEncodingStarted = {
                         if (!trackStarted) {
@@ -80,6 +85,7 @@ class SurfaceVideoEncoder(
         broadcastName: String,
         audioConfig: AudioPublishConfig?,
         stats: PublishStatsTracker,
+        videoTimeline: VideoPublishTimeline,
         generation: Long?,
         onEncodingStarted: () -> Unit,
     ): VideoPublishTransition? {
@@ -130,7 +136,8 @@ class SurfaceVideoEncoder(
                     ),
                 )
                 encodingStarted = true
-                return drain(codec, media, stats, lifecycle, attempt.config, generation)
+                videoTimeline.beginGeneration()
+                return drain(codec, media, stats, lifecycle, videoTimeline, attempt.config, generation)
             } catch (error: Throwable) {
                 if (encodingStarted && error !is CancellationException) {
                     lifecycle.emit(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
@@ -175,9 +182,10 @@ class SurfaceVideoEncoder(
 
     private suspend fun drain(
         codec: MediaCodec,
-        media: MoqMediaStreamProducer,
+        media: MoqMediaProducer,
         stats: PublishStatsTracker,
         lifecycle: PublisherLifecycleEventSink,
+        videoTimeline: VideoPublishTimeline,
         activeConfig: VideoPublishConfig,
         generation: Long?,
     ): VideoPublishTransition? {
@@ -187,6 +195,7 @@ class SurfaceVideoEncoder(
         var loggedDiscardedDelta = false
         var outputWasSuspended = false
         var layoutReadySent = generation == null
+        var lastTimelineLogUs: Long? = null
         while (coroutineContext.isActive) {
             source.pollFailure()?.let { throw it }
             publishPendingLayoutEvents()
@@ -218,6 +227,7 @@ class SurfaceVideoEncoder(
                 else -> if (outputIndex >= 0) {
                     val payload = codec.getOutputBuffer(outputIndex)?.readBytes(info) ?: ByteArray(0)
                     val flags = info.flags
+                    val sourceTimestampUs = info.presentationTimeUs
                     codec.releaseOutputBuffer(outputIndex, false)
 
                     if (payload.isNotEmpty()) {
@@ -269,10 +279,30 @@ class SurfaceVideoEncoder(
                                 LOG_TAG,
                                 "H.264 encoder IDR ready size=${activeConfig.width}x${activeConfig.height} " +
                                     "parameterSetsBytes=${codecConfig?.size ?: 0} " +
-                                    "presentationTimeUs=${info.presentationTimeUs}",
+                                    "presentationTimeUs=$sourceTimestampUs",
                             )
                         }
-                        media.write(frame)
+                        val timestamp = videoTimeline.map(sourceTimestampUs)
+                        media.writeFrame(
+                            MoqFrame(
+                                payload = frame,
+                                timestampUs = timestamp.timestampUs.toULong(),
+                            ),
+                        )
+                        if (
+                            lastTimelineLogUs == null ||
+                            timestamp.sessionElapsedUs - lastTimelineLogUs >= TIMELINE_LOG_INTERVAL_US
+                        ) {
+                            Log.i(
+                                LOG_TAG,
+                                "video publish timeline sourcePtsUs=$sourceTimestampUs " +
+                                    "mediaPtsUs=${timestamp.timestampUs} " +
+                                    "sessionElapsedUs=${timestamp.sessionElapsedUs} " +
+                                    "outputLagUs=${timestamp.sessionElapsedUs - timestamp.timestampUs} " +
+                                    "sourceClock=${if (timestamp.sourceClockMatched) "monotonic" else "anchored"}",
+                            )
+                            lastTimelineLogUs = timestamp.sessionElapsedUs
+                        }
                         if (!layoutReadySent && generation != null) {
                             publishLayoutEvent(
                                 VideoLayoutEvent(
@@ -360,5 +390,6 @@ class SurfaceVideoEncoder(
         private const val LOG_TAG = "MoqAndroid"
         private const val MIME_AVC = "video/avc"
         private const val VIDEO_TRACK_NAME = "video"
+        private const val TIMELINE_LOG_INTERVAL_US = 5_000_000L
     }
 }

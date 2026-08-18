@@ -18,7 +18,7 @@ import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
 import uniffi.moq.MoqVideoProperties
 
-class MoqPublishSession(
+internal class MoqPublishSession(
     private val relayUrl: String,
     private val tlsFingerprints: List<String> = emptyList(),
     private val connectionLabel: String = relayUrl,
@@ -85,7 +85,8 @@ class MoqPublishSession(
         config: PublishSessionConfig,
         audioSource: AudioPublishSource?,
     ) {
-        val media = broadcast.publishMediaStream(
+        val timeline = PublishTimeline()
+        val media = broadcast.publishMedia(
             MoqInit(format = "avc3", data = byteArrayOf(), video = null),
         )
         source.presentation?.let { presentation ->
@@ -155,7 +156,7 @@ class MoqPublishSession(
                 val audioJob = audio?.let { producer ->
                     launch {
                         runCatching {
-                            audioSource.capture(producer)
+                            audioSource.capture(producer, timeline)
                         }.onFailure { error ->
                             if (error !is CancellationException) {
                                 Log.w(LOG_TAG, "audio capture failed", error)
@@ -177,6 +178,7 @@ class MoqPublishSession(
                         source = source,
                         media = media,
                         videoLayout = videoLayout,
+                        timeline = timeline,
                         connectionLabel = connectionLabel,
                         lifecycle = lifecycle,
                     ).run(config.video, broadcastName, audioSource?.config)
