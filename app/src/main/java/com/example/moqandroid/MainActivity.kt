@@ -10,7 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
-import android.view.SurfaceHolder
+import android.view.Surface
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -27,6 +27,7 @@ import com.example.moqandroid.playback.PlaybackLayoutCoordinator
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.ui.PlayerScreen
+import com.example.moqandroid.ui.PlayerSurfaceListener
 import com.example.moqandroid.ui.app.FirstRunConfig
 import com.example.moqandroid.ui.app.MainTabs
 import com.example.moqandroid.ui.app.MainTabsActions
@@ -44,7 +45,7 @@ import com.example.moqandroid.ui.nearby.NearbyMediaState
 import com.example.moqandroid.ui.nearby.NearbyScreen
 import com.example.moqandroid.ui.nearby.NearbyUiState
 
-class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
+class MainActivity : ComponentActivity(), PlayerSurfaceListener {
     private lateinit var projectionManager: MediaProjectionManager
     private lateinit var viewModel: AppViewModel
     private var playerScreen: PlayerScreen? = null
@@ -109,6 +110,8 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 publishCompatibilityMode = viewModel.settingsPublishCompatibilityMode,
                                 h264ProfilePreference = viewModel.settingsH264ProfilePreference,
                                 h264ProfileOptions = viewModel.h264ProfileOptions,
+                                playbackRendererMode = viewModel.settingsPlaybackRendererMode,
+                                playbackRendererOptions = viewModel.playbackRendererOptions,
                                 showPlaybackStats = viewModel.settingsShowPlaybackStats,
                                 lanMeshEnabled = viewModel.settingsLanMeshEnabled,
                             ),
@@ -135,6 +138,7 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
                                 onLanguageChange = viewModel::updateSettingsLanguage,
                                 onPublishCompatibilityModeChange = viewModel::updateSettingsPublishCompatibilityMode,
                                 onH264ProfilePreferenceChange = viewModel::updateSettingsH264ProfilePreference,
+                                onPlaybackRendererModeChange = viewModel::updateSettingsPlaybackRendererMode,
                                 onShowPlaybackStatsChange = viewModel::updateSettingsShowPlaybackStats,
                                 onLanMeshEnabledChange = viewModel::updateSettingsLanMeshEnabled,
                                 onOpenNearby = viewModel::showNearbyUi,
@@ -271,16 +275,16 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         val screen = PlayerScreen(
             activity = this,
             broadcastName = nextBroadcast,
-            surfaceCallback = this,
+            rendererMode = viewModel.playbackRendererMode,
+            surfaceListener = this,
         )
         playbackLayoutCoordinator.reset()
         playerScreen = screen
         setContentView(screen.root)
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        playerScreen?.traceSurfaceEvent("surface created")
-        val surface = holder.surface
+    override fun onSurfaceAvailable(screen: PlayerScreen, surface: Surface) {
+        if (currentPlayerScreen(screen) == null) return
         if (!surface.isValid) {
             updatePlayerView(PlayerState.SurfaceWaiting, PlayerState.SurfaceWaiting.message(viewModel.playerBroadcast.orEmpty()))
             return
@@ -289,17 +293,11 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
         viewModel.startPlayback(surface, ::updatePlayerView)
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        playerScreen?.onSurfaceChanged(format, width, height)
-    }
-
-    override fun surfaceRedrawNeeded(holder: SurfaceHolder) {
-        playerScreen?.traceSurfaceEvent("surface redraw needed")
-    }
-
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        playerScreen?.traceSurfaceEvent("surface destroyed")
-        viewModel.stopPlayback("Disconnected from ${viewModel.playerBroadcast ?: viewModel.subscribeBroadcastName}.")
+    override fun onSurfaceDestroyed(screen: PlayerScreen) {
+        if (currentPlayerScreen(screen) == null) return
+        viewModel.suspendPlaybackForSurface(
+            "Disconnected from ${viewModel.playerBroadcast ?: viewModel.subscribeBroadcastName}.",
+        )
     }
 
     override fun onPause() {
@@ -329,8 +327,9 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
             } else {
                 viewModel.showMainUi()
             }
-            playerScreen?.release()
+            val screen = playerScreen
             playerScreen = null
+            screen?.release()
             playbackLayoutCoordinator.reset()
             exitFullscreen()
             setComposeContent()
@@ -342,8 +341,23 @@ class MainActivity : ComponentActivity(), SurfaceHolder.Callback2 {
 
     override fun onDestroy() {
         Log.i(LOG_TAG, "MainActivity destroyed")
-        playerScreen?.release()
+        val screen = playerScreen
+        if (screen != null) {
+            viewModel.suspendPlaybackForSurface(
+                "Disconnected from ${viewModel.playerBroadcast ?: viewModel.subscribeBroadcastName}.",
+            )
+        }
+        playerScreen = null
+        screen?.release()
         super.onDestroy()
+    }
+
+    private fun currentPlayerScreen(screen: PlayerScreen): PlayerScreen? {
+        if (playerScreen !== screen) {
+            Log.i(LOG_TAG, "ignoring stale player surface callback")
+            return null
+        }
+        return screen
     }
 
     private fun updatePlayerView(state: PlayerState, message: String) {

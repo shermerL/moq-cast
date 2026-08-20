@@ -17,6 +17,11 @@
     <string name="playback_section">播放</string>
     <string name="show_playback_stats">显示播放统计</string>
     <string name="show_playback_stats_note">在视频上显示实时帧率、码率和轨道信息</string>
+    <string name="playback_renderer_label">播放渲染器</string>
+    <string name="playback_renderer_note">SurfaceView 是默认性能模式。TextureView 用于旧设备或厂商合成器兼容，且不显示播放覆盖层。</string>
+    <string name="playback_renderer_options">播放渲染器选项</string>
+    <string name="playback_renderer_surface_view">SurfaceView（默认）</string>
+    <string name="playback_renderer_texture_view">TextureView（兼容）</string>
     <string name="status_publishing_title">发布中</string>
     <string name="status_preparing_title">准备中</string>
     <string name="status_stopping_title">停止中</string>

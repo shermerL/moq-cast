@@ -17,6 +17,11 @@
     <string name="playback_section">Playback</string>
     <string name="show_playback_stats">Show playback stats</string>
     <string name="show_playback_stats_note">Show live frame rate, bitrate, and track details over video</string>
+    <string name="playback_renderer_label">Playback renderer</string>
+    <string name="playback_renderer_note">SurfaceView is the default performance mode. TextureView is a compatibility mode for older devices and does not show playback overlays.</string>
+    <string name="playback_renderer_options">Playback renderer options</string>
+    <string name="playback_renderer_surface_view">SurfaceView (default)</string>
+    <string name="playback_renderer_texture_view">TextureView (compatibility)</string>
     <string name="status_publishing_title">Publishing</string>
     <string name="status_preparing_title">Preparing</string>
     <string name="status_stopping_title">Stopping</string>

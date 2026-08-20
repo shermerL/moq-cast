@@ -1,6 +1,7 @@
 package com.example.moqandroid.config
 
 import android.content.Context
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
 // Optional default for local development. Leave empty to require setup on first launch.
@@ -26,6 +27,10 @@ class AppConfigStore(context: Context) {
 
     fun loadH264ProfilePreference(): H264ProfilePreference {
         return H264ProfilePreference.fromStorageValue(prefs.getString(KEY_H264_PROFILE, null))
+    }
+
+    fun loadPlaybackRendererMode(): PlaybackRendererMode {
+        return PlaybackRendererMode.fromStorageValue(prefs.getString(KEY_PLAYBACK_RENDERER, null))
     }
 
     fun loadShowPlaybackStats(): Boolean {
@@ -60,6 +65,12 @@ class AppConfigStore(context: Context) {
             .apply()
     }
 
+    fun savePlaybackRendererMode(mode: PlaybackRendererMode) {
+        prefs.edit()
+            .putString(KEY_PLAYBACK_RENDERER, mode.storageValue)
+            .apply()
+    }
+
     fun saveShowPlaybackStats(show: Boolean) {
         prefs.edit()
             .putBoolean(KEY_SHOW_PLAYBACK_STATS, show)
@@ -78,6 +89,7 @@ class AppConfigStore(context: Context) {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_PUBLISH_COMPATIBILITY_MODE = "publish_compatibility_mode"
         private const val KEY_H264_PROFILE = "h264_profile"
+        private const val KEY_PLAYBACK_RENDERER = "playback_renderer"
         private const val KEY_SHOW_PLAYBACK_STATS = "show_playback_stats"
         private const val KEY_LAN_MESH_ENABLED = "lan_mesh_enabled"
     }

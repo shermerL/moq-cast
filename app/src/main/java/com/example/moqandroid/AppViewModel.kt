@@ -22,6 +22,7 @@ import com.example.moqandroid.network.lan.server.MoqPeerServer
 import com.example.moqandroid.network.lan.server.PeerListenerState
 import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.playback.PlaybackController
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.CameraPublishStartRequest
 import com.example.moqandroid.publish.PublishController
@@ -56,6 +57,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialLanguage = configStore.loadLanguage()
     private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
     private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
+    private val initialPlaybackRendererMode = configStore.loadPlaybackRendererMode()
     private val initialShowPlaybackStats = configStore.loadShowPlaybackStats()
     private val initialLanMeshEnabled = configStore.loadLanMeshEnabled()
     private var appLanguage = initialLanguage
@@ -77,6 +79,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            playbackRendererMode = initialPlaybackRendererMode,
             showPlaybackStats = initialShowPlaybackStats,
             lanMeshEnabled = initialLanMeshEnabled,
         ),
@@ -89,6 +92,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            playbackRendererMode = initialPlaybackRendererMode,
             showPlaybackStats = initialShowPlaybackStats,
             lanMeshEnabled = initialLanMeshEnabled,
         ),
@@ -151,6 +155,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsH264ProfilePreference: H264ProfilePreference
         get() = settingsState.h264ProfilePreference
 
+    val settingsPlaybackRendererMode: PlaybackRendererMode
+        get() = settingsState.playbackRendererMode
+
     val settingsShowPlaybackStats: Boolean
         get() = settingsState.showPlaybackStats
 
@@ -162,6 +169,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val h264ProfileOptions: List<H264ProfilePreference>
         get() = H264ProfilePreference.entries
+
+    val playbackRendererOptions: List<PlaybackRendererMode>
+        get() = PlaybackRendererMode.entries
+
+    val playbackRendererMode: PlaybackRendererMode
+        get() = configState.playbackRendererMode
 
     val nearbyDiscoveryState = lanMesh.discoveryState
     val nearbyServerState = lanMesh.serverState
@@ -225,6 +238,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSettingsH264ProfilePreference(value: H264ProfilePreference) {
         settingsState = settingsState.withH264ProfilePreference(value)
+    }
+
+    fun updateSettingsPlaybackRendererMode(value: PlaybackRendererMode) {
+        settingsState = settingsState.withPlaybackRendererMode(value)
     }
 
     fun updateSettingsShowPlaybackStats(value: Boolean) {
@@ -321,12 +338,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .withLanguage(settingsState.language)
             .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
             .withH264ProfilePreference(settingsState.h264ProfilePreference)
+            .withPlaybackRendererMode(settingsState.playbackRendererMode)
             .withShowPlaybackStats(settingsState.showPlaybackStats)
             .withLanMeshEnabled(settingsState.lanMeshEnabled)
             .withStatus(text(R.string.relay_required))
         configStore.saveLanguage(settingsState.language)
         configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
         configStore.saveH264ProfilePreference(settingsState.h264ProfilePreference)
+        configStore.savePlaybackRendererMode(settingsState.playbackRendererMode)
         configStore.saveShowPlaybackStats(settingsState.showPlaybackStats)
         configStore.saveLanMeshEnabled(settingsState.lanMeshEnabled)
         publishStatusMessage = text(R.string.relay_updated)
@@ -560,6 +579,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         playbackController.stop()
         subscribeStatusMessage = message
         if (playbackTarget == PlaybackTarget.Nearby) nearbyMediaState = NearbyMediaStateReducer.stopped()
+    }
+
+    fun suspendPlaybackForSurface(message: String) {
+        playbackController.stop()
+        subscribeStatusMessage = message
     }
 
     fun stopPublish(message: String) {
