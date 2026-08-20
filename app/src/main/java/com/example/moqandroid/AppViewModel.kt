@@ -545,14 +545,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onPlayerState = onPlayerState,
             )
             PlaybackTarget.Nearby -> {
-                val consumer = lanMesh.consume()
-                if (consumer == null) {
-                    onPlayerState(PlayerState.Failed("Nearby receiver is not running."), "Nearby receiver is not running.")
-                    return
-                }
                 playbackController.startPeer(
                     surface = surface,
-                    originConsumer = consumer,
+                    originConsumerProvider = lanMesh::consume,
                     peerName = text(R.string.nearby_device),
                     broadcastName = nextBroadcast,
                     onPlayerState = onPlayerState,

@@ -5,10 +5,14 @@ import android.view.Surface
 import com.example.moqandroid.catalog.CodecPreference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.moq.MoqOriginConsumer
 
 class PlaybackController(
@@ -16,6 +20,7 @@ class PlaybackController(
     private val logTag: String,
 ) {
     private var playbackJob: Job? = null
+    private var playbackJobSessionId: Int? = null
     private var playbackSessionId = 0
 
     fun start(
@@ -31,13 +36,14 @@ class PlaybackController(
 
     fun startPeer(
         surface: Surface,
-        originConsumer: MoqOriginConsumer,
+        originConsumerProvider: () -> MoqOriginConsumer?,
         peerName: String,
         broadcastName: String,
         onPlayerState: (PlayerState, String) -> Unit,
     ) {
         startInternal(surface, broadcastName, onPlayerState) { playback ->
-            originConsumer.use {
+            val consumer = originConsumerProvider() ?: error("Nearby receiver is not running.")
+            consumer.use {
                 playback.playOrigin(it, peerName, surface, broadcastName, CodecPreference.Auto)
             }
         }
@@ -49,40 +55,52 @@ class PlaybackController(
         onPlayerState: (PlayerState, String) -> Unit,
         play: suspend (MoqPlaybackSession) -> Unit,
     ) {
-        playbackJob?.cancel()
+        val previous = playbackJob
+        previous?.cancel()
         val sessionId = ++playbackSessionId
-        playbackJob = scope.launch {
-            val playback = MoqPlaybackSession(
-                logTag = logTag,
-                status = { state -> updatePlayerStatus(state, broadcastName, sessionId, onPlayerState) },
-            )
-            runCatching {
-                play(playback)
-                updatePlayerStatus(PlayerState.Disconnected, broadcastName, sessionId, onPlayerState)
-            }.onFailure { error ->
-                Log.w(logTag, "playback failed", error)
-                when {
-                    error is CancellationException -> {
-                        updatePlayerStatus(PlayerState.Disconnected, broadcastName, sessionId, onPlayerState)
-                    }
+        playbackJobSessionId = sessionId
+        playbackJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitPreviousPlayback(previous)
+                if (previous != null) {
+                    Log.i(logTag, "playback sessionId=$sessionId starting after previous teardown")
+                }
+                val playback = MoqPlaybackSession(
+                    logTag = logTag,
+                    status = { state -> updatePlayerStatus(state, broadcastName, sessionId, onPlayerState) },
+                )
+                runCatching {
+                    play(playback)
+                    updatePlayerStatus(PlayerState.Disconnected, broadcastName, sessionId, onPlayerState)
+                }.onFailure { error ->
+                    Log.w(logTag, "playback failed", error)
+                    when {
+                        error is CancellationException -> {
+                            updatePlayerStatus(PlayerState.Disconnected, broadcastName, sessionId, onPlayerState)
+                        }
 
-                    isActive -> {
-                        updatePlayerStatus(
-                            PlayerState.Failed(error.message ?: error::class.java.name),
-                            broadcastName,
-                            sessionId,
-                            onPlayerState,
-                        )
+                        isActive -> {
+                            updatePlayerStatus(
+                                PlayerState.Failed(error.message ?: error::class.java.name),
+                                broadcastName,
+                                sessionId,
+                                onPlayerState,
+                            )
+                        }
                     }
                 }
+            } finally {
+                Log.i(logTag, "playback sessionId=$sessionId teardown complete")
             }
         }
     }
 
     fun stop() {
         playbackSessionId += 1
-        playbackJob?.cancel()
-        playbackJob = null
+        playbackJob?.let {
+            Log.i(logTag, "playback sessionId=$playbackJobSessionId stop requested")
+            it.cancel()
+        }
     }
 
     private fun updatePlayerStatus(
@@ -100,4 +118,11 @@ class PlaybackController(
             }
         }
     }
+}
+
+internal suspend fun awaitPreviousPlayback(previous: Job?) {
+    withContext(NonCancellable) {
+        previous?.join()
+    }
+    kotlinx.coroutines.currentCoroutineContext().ensureActive()
 }
