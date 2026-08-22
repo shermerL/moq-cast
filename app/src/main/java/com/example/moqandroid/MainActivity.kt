@@ -25,7 +25,6 @@ import com.example.moqandroid.config.withAppLanguage
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.playback.PlaybackLayoutCoordinator
 import com.example.moqandroid.publish.PublishRequest
-import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.ui.PlayerScreen
 import com.example.moqandroid.ui.PlayerSurfaceListener
 import com.example.moqandroid.ui.app.FirstRunConfig
@@ -41,6 +40,7 @@ import com.example.moqandroid.ui.app.SettingsUiState
 import com.example.moqandroid.ui.app.SubscribePanelActions
 import com.example.moqandroid.ui.app.SubscribePanelState
 import com.example.moqandroid.ui.nearby.NearbyActions
+import com.example.moqandroid.ui.nearby.NearbyActionPolicy
 import com.example.moqandroid.ui.nearby.NearbyMediaState
 import com.example.moqandroid.ui.nearby.NearbyScreen
 import com.example.moqandroid.ui.nearby.NearbyUiState
@@ -156,9 +156,10 @@ class MainActivity : ComponentActivity(), PlayerSurfaceListener {
                             errorCode = nearbyDiscoveryState.errorCode,
                             serverState = nearbyServerState,
                             mediaState = viewModel.nearbyMediaState,
-                            canShareScreen = nearbyPeerItems.any {
-                                it.connectionState == PeerConnectionState.Connected
-                            } || nearbyServerState.activeSessionCount > 0,
+                            canShareScreen = NearbyActionPolicy.canReachPeer(
+                                connections = nearbyPeerItems.map { it.connectionState },
+                                activeInboundSessionCount = nearbyServerState.activeSessionCount,
+                            ),
                             includeSystemAudio = viewModel.nearbyIncludeSystemAudio,
                             systemAudioSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
                         ),

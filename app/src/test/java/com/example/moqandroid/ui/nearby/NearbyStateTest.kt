@@ -111,6 +111,22 @@ class NearbyStateTest {
     }
 
     @Test
+    fun inboundRoleCanShareWithoutAThirdOutboundPeer() {
+        assertTrue(
+            NearbyActionPolicy.canReachPeer(
+                connections = listOf(PeerConnectionState.Waiting),
+                activeInboundSessionCount = 1,
+            ),
+        )
+        assertFalse(
+            NearbyActionPolicy.canReachPeer(
+                connections = listOf(PeerConnectionState.Waiting),
+                activeInboundSessionCount = 0,
+            ),
+        )
+    }
+
+    @Test
     fun publishingBlocksRemotePlayback() {
         assertNull(
             NearbyMediaStateReducer.viewingStarted(
