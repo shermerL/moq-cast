@@ -25,12 +25,12 @@ class CodecCapabilityResolver(
             )
         }
 
-        val preferred = candidates.firstOrNull { it.supportsFormat } ?: candidates.firstOrNull()
+        val preferred = selectH264EncoderCandidate(candidates, config.profilePreference)
         return EncoderCapability(
             encoderName = preferred?.name ?: "unknown",
-            supportsBaseline = candidates.any { it.supportsBaseline },
-            supportsHigh = candidates.any { it.supportsHigh },
-            supportsRequestedFormat = candidates.any { it.supportsFormat },
+            supportsBaseline = preferred?.supportsBaseline == true,
+            supportsHigh = preferred?.supportsHigh == true,
+            supportsRequestedFormat = preferred?.supportsFormat == true,
             hasSurfaceEncoder = candidates.isNotEmpty(),
         )
     }
@@ -60,6 +60,7 @@ data class EncoderCapabilityRequest(
     val width: Int,
     val height: Int,
     val frameRate: Int,
+    val profilePreference: H264ProfilePreference?,
 )
 
 data class EncoderCapability(
@@ -70,9 +71,28 @@ data class EncoderCapability(
     val hasSurfaceEncoder: Boolean,
 )
 
-private data class EncoderCandidate(
+internal data class EncoderCandidate(
     val name: String,
     val supportsBaseline: Boolean,
     val supportsHigh: Boolean,
     val supportsFormat: Boolean,
 )
+
+internal fun selectH264EncoderCandidate(
+    candidates: List<EncoderCandidate>,
+    preference: H264ProfilePreference?,
+): EncoderCandidate? {
+    return candidates.maxByOrNull { candidate ->
+        val formatScore = if (candidate.supportsFormat) 100 else 0
+        val profileScore = when (preference) {
+            H264ProfilePreference.Baseline -> if (candidate.supportsBaseline) 20 else 0
+            H264ProfilePreference.High -> when {
+                candidate.supportsHigh -> 20
+                candidate.supportsBaseline -> 10
+                else -> 0
+            }
+            null -> 0
+        }
+        formatScore + profileScore
+    }
+}

@@ -228,6 +228,8 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
                         rendered = runtime.info.size > 0 && decision.render,
                         audioDeltaUs = decision.audioDeltaUs,
                         waitedUs = decision.waitedUs,
+                        audioClockUnavailable = decision.audioClockUnavailable,
+                        lateForAudio = decision.lateForAudio,
                     )
                     runtime.transitionTrace.onOutputFrame(
                         presentationTimeUs = runtime.info.presentationTimeUs,
@@ -324,11 +326,15 @@ internal class VideoDecoder(private val status: (PlayerState) -> Unit) {
         if (audioClock == null) return VideoRenderDecision(render = true)
 
         val timing = audioClock.timingFor(presentationTimeUs)
-            ?: return VideoRenderDecision(render = true)
+            ?: return VideoRenderDecision(render = true, audioClockUnavailable = true)
         val deltaUs = presentationTimeUs - timing.positionUs
 
         if (deltaUs < -VIDEO_DROP_LATE_US) {
-            return VideoRenderDecision(render = false, audioDeltaUs = deltaUs)
+            return VideoRenderDecision(
+                render = false,
+                audioDeltaUs = deltaUs,
+                lateForAudio = true,
+            )
         }
 
         val waitStartedNs = System.nanoTime()
@@ -406,6 +412,8 @@ private data class VideoRenderDecision(
     val renderTimeNs: Long? = null,
     val audioDeltaUs: Long? = null,
     val waitedUs: Long = 0,
+    val audioClockUnavailable: Boolean = false,
+    val lateForAudio: Boolean = false,
 )
 
 private data class VideoDrainResult(

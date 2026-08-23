@@ -32,6 +32,9 @@ class MoqLanMeshRuntime(
     private val server = MoqPeerServer(context.applicationContext, scope)
     private val peerJobs = linkedMapOf<String, PeerJob>()
     private val peerDirectory = PeerConnectionDirectory()
+    private var currentLocalPeerId: String? = null
+    private var previousLocalPeerId: String? = null
+    private var lastIgnoredLocalPeerId: String? = null
     private val mutablePeerStates = MutableStateFlow<Map<String, PeerConnectionState>>(emptyMap())
     private val mutablePeers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
     private var reconcileJob: Job? = null
@@ -82,21 +85,36 @@ class MoqLanMeshRuntime(
 
     private fun reconcile(peers: List<DiscoveredPeer>, localId: String?) {
         if (!started) return
+        if (localId != null && localId != currentLocalPeerId) {
+            previousLocalPeerId = currentLocalPeerId
+            currentLocalPeerId = localId
+        }
+        val localPeerIds = setOfNotNull(currentLocalPeerId, previousLocalPeerId)
+        val remotePeers = remotePeers(peers, localPeerIds)
+        val ignoredLocalPeerId = peers.asSequence()
+            .map(DiscoveredPeer::id)
+            .firstOrNull { it in localPeerIds }
+        if (ignoredLocalPeerId != null && ignoredLocalPeerId != lastIgnoredLocalPeerId) {
+            lastIgnoredLocalPeerId = ignoredLocalPeerId
+            Log.i(LOG_TAG, "LAN discovery event=ignored-local service=$ignoredLocalPeerId")
+        } else if (ignoredLocalPeerId == null) {
+            lastIgnoredLocalPeerId = null
+        }
         if (localId == null) {
             synchronized(peerJobs) {
                 peerJobs.values.forEach { it.job.cancel() }
                 peerJobs.clear()
             }
             publishPeerStates {
-                peerDirectory.reconcile(peers.mapTo(mutableSetOf(), DiscoveredPeer::id), emptySet())
+                peerDirectory.reconcile(remotePeers.mapTo(mutableSetOf(), DiscoveredPeer::id), emptySet())
             }
-            mutablePeers.value = peers
+            mutablePeers.value = remotePeers
             return
         }
 
-        val discovered = peers.associateBy(DiscoveredPeer::id)
+        val discovered = remotePeers.associateBy(DiscoveredPeer::id)
         val wanted = discovered.values
-            .filter { peer -> localId < peer.id }
+            .filter { peer -> shouldDialPeer(localId, peer.id) }
             .associateBy(DiscoveredPeer::id)
         val retained = retainedPeerIds(discovered.keys)
 
@@ -238,6 +256,13 @@ class MoqLanMeshRuntime(
 
 private fun PeerConnectionState?.keepsSessionAcrossDiscoveryLoss(): Boolean =
     this == PeerConnectionState.Connected || this == PeerConnectionState.Reconnecting
+
+internal fun remotePeers(
+    peers: List<DiscoveredPeer>,
+    localPeerIds: Set<String>,
+): List<DiscoveredPeer> = peers.filterNot { peer -> peer.id in localPeerIds }
+
+internal fun shouldDialPeer(localId: String, peerId: String): Boolean = localId < peerId
 
 private fun PeerConnectionState.logName(): String = when (this) {
     PeerConnectionState.Discovered -> "discovered"

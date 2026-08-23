@@ -16,11 +16,14 @@ import android.util.Range
 import android.view.Surface
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class CameraPublishSource(
     private val context: Context,
@@ -41,7 +44,7 @@ class CameraPublishSource(
     private var closed = false
 
     @SuppressLint("MissingPermission")
-    override fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig) {
+    override suspend fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig) {
         check(!closed) { "Camera source is closed." }
         check(
             context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
@@ -54,16 +57,6 @@ class CameraPublishSource(
         detachEncoderSurface()
         failure.set(null)
         val generation = synchronized(lock) { ++attachGeneration }
-        val completed = AtomicBoolean(false)
-        val ready = CountDownLatch(1)
-        val startupFailure = AtomicReference<Throwable?>()
-
-        fun complete(error: Throwable? = null) {
-            if (!completed.compareAndSet(false, true)) return
-            startupFailure.set(error)
-            ready.countDown()
-        }
-
         Log.i(
             LOG_TAG,
                 "opening ${cameraConfig.lensFacing.statusLabel} camera id=${cameraConfig.cameraId} " +
@@ -75,68 +68,96 @@ class CameraPublishSource(
         )
 
         try {
-            cameraManager.openCamera(
-                cameraConfig.cameraId,
-                object : CameraDevice.StateCallback() {
-                    override fun onOpened(camera: CameraDevice) {
-                        val accepted = synchronized(lock) {
-                            if (closed || attachGeneration != generation) {
-                                false
-                            } else {
-                                cameraDevice = camera
-                                true
-                            }
-                        }
-                        if (!accepted) {
-                            camera.close()
-                            complete(IllegalStateException("Camera attach was cancelled."))
-                            return
-                        }
-                        configureCaptureSession(camera, surface, generation, ::complete)
-                    }
-
-                    override fun onDisconnected(camera: CameraDevice) {
-                        camera.close()
-                        reportCameraFailure(
-                            generation,
-                            IllegalStateException(
-                                "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera disconnected.",
-                            ),
-                            ::complete,
-                        )
-                    }
-
-                    override fun onError(camera: CameraDevice, error: Int) {
-                        camera.close()
-                        reportCameraFailure(
-                            generation,
-                            IllegalStateException(
-                                "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera failed with error code $error.",
-                            ),
-                            ::complete,
-                        )
-                    }
-                },
-                cameraHandler,
-            )
+            withTimeout(CAMERA_START_TIMEOUT_MS) {
+                awaitCameraAttached(surface, generation)
+            }
         } catch (error: Throwable) {
-            complete(error)
-        }
-
-        if (!ready.await(CAMERA_START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            detachEncoderSurface()
-            throw TimeoutException("Timed out while starting the ${cameraConfig.lensFacing.statusLabel} camera.")
-        }
-        startupFailure.get()?.let {
-            detachEncoderSurface()
-            throw it
+            detachGeneration(generation)
+            if (error is TimeoutCancellationException) {
+                throw TimeoutException("Timed out while starting the ${cameraConfig.lensFacing.statusLabel} camera.")
+            }
+            throw error
         }
     }
 
-    override fun detachEncoderSurface() {
+    override suspend fun detachEncoderSurface() {
+        detachGeneration()
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun awaitCameraAttached(surface: Surface, generation: Long) {
+        suspendCancellableCoroutine { continuation ->
+            val completed = AtomicBoolean(false)
+
+            fun complete(error: Throwable? = null) {
+                if (!completed.compareAndSet(false, true)) return
+                if (error == null) {
+                    continuation.resume(Unit)
+                } else {
+                    continuation.resumeWithException(error)
+                }
+            }
+
+            continuation.invokeOnCancellation {
+                completed.set(true)
+                detachGeneration(generation)
+            }
+            try {
+                cameraManager.openCamera(
+                    cameraConfig.cameraId,
+                    object : CameraDevice.StateCallback() {
+                        override fun onOpened(camera: CameraDevice) {
+                            val accepted = synchronized(lock) {
+                                if (closed || attachGeneration != generation) {
+                                    false
+                                } else {
+                                    cameraDevice = camera
+                                    true
+                                }
+                            }
+                            if (!accepted) {
+                                camera.close()
+                                complete(IllegalStateException("Camera attach was cancelled."))
+                                return
+                            }
+                            configureCaptureSession(camera, surface, generation, ::complete)
+                        }
+
+                        override fun onDisconnected(camera: CameraDevice) {
+                            camera.close()
+                            reportCameraFailure(
+                                generation,
+                                IllegalStateException(
+                                    "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera disconnected.",
+                                ),
+                                ::complete,
+                            )
+                        }
+
+                        override fun onError(camera: CameraDevice, error: Int) {
+                            camera.close()
+                            reportCameraFailure(
+                                generation,
+                                IllegalStateException(
+                                    "${cameraConfig.lensFacing.statusLabel.replaceFirstChar { it.uppercase() }} camera failed with error code $error.",
+                                ),
+                                ::complete,
+                            )
+                        }
+                    },
+                    cameraHandler,
+                )
+            } catch (error: Throwable) {
+                complete(error)
+            }
+        }
+    }
+
+    private fun detachGeneration(expectedGeneration: Long? = null) {
         val session: CameraCaptureSession?
         val device: CameraDevice?
         synchronized(lock) {
+            if (expectedGeneration != null && attachGeneration != expectedGeneration) return
             attachGeneration += 1
             session = captureSession
             device = cameraDevice
@@ -153,7 +174,7 @@ class CameraPublishSource(
 
     override fun pollFailure(): Throwable? = failure.getAndSet(null)
 
-    override fun close() {
+    override suspend fun close() {
         if (closed) return
         closed = true
         detachEncoderSurface()
@@ -257,7 +278,7 @@ class CameraPublishSource(
 
     companion object {
         private const val LOG_TAG = "MoqAndroid"
-        private const val CAMERA_START_TIMEOUT_SECONDS = 5L
+        private const val CAMERA_START_TIMEOUT_MS = 5_000L
         private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 1_000L
     }
 }

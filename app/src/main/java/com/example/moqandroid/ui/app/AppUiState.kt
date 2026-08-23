@@ -1,11 +1,11 @@
 package com.example.moqandroid.ui.app
 
 import com.example.moqandroid.config.AppLanguage
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
-import com.example.moqandroid.publish.file.PublishFileState
 
 data class RelayConfigUiState(
     val relayUrl: String,
@@ -20,6 +20,8 @@ data class SettingsUiState(
     val publishCompatibilityMode: Boolean,
     val h264ProfilePreference: H264ProfilePreference,
     val h264ProfileOptions: List<H264ProfilePreference>,
+    val playbackRendererMode: PlaybackRendererMode,
+    val playbackRendererOptions: List<PlaybackRendererMode>,
     val showPlaybackStats: Boolean,
     val lanMeshEnabled: Boolean,
 )
@@ -45,7 +47,6 @@ data class PublishPanelState(
     val includeMicrophone: Boolean,
     val cameraLensFacing: CameraLensFacing,
     val cameraQualityPreset: CameraQualityPreset,
-    val publishFileState: PublishFileState,
     val status: String,
     val mode: PublishPanelMode,
 )
@@ -58,7 +59,6 @@ data class PublishPanelActions(
     val onIncludeMicrophoneChange: (Boolean) -> Unit,
     val onCameraLensFacingChange: (CameraLensFacing) -> Unit,
     val onCameraQualityPresetChange: (CameraQualityPreset) -> Unit,
-    val onChoosePublishFile: () -> Unit,
     val onPublish: () -> Unit,
     val onStopPublish: () -> Unit,
 )
@@ -92,6 +92,7 @@ data class SettingsActions(
     val onLanguageChange: (AppLanguage) -> Unit,
     val onPublishCompatibilityModeChange: (Boolean) -> Unit,
     val onH264ProfilePreferenceChange: (H264ProfilePreference) -> Unit,
+    val onPlaybackRendererModeChange: (PlaybackRendererMode) -> Unit,
     val onShowPlaybackStatsChange: (Boolean) -> Unit,
     val onLanMeshEnabledChange: (Boolean) -> Unit,
     val onOpenNearby: () -> Unit,

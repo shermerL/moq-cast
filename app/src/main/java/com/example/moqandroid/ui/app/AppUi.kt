@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.moqandroid.R
 import com.example.moqandroid.config.AppLanguage
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.ui.components.ClearFocusOnEntry
 import com.example.moqandroid.ui.components.LabeledField
@@ -216,6 +217,12 @@ private fun SettingsPanel(
             }
 
             MoqSettingSection(title = stringResource(R.string.playback_section)) {
+                PlaybackRendererSettingRow(
+                    selected = state.playbackRendererMode,
+                    options = state.playbackRendererOptions,
+                    onSelected = actions.onPlaybackRendererModeChange,
+                )
+                Spacer(Modifier.height(18.dp))
                 ToggleSettingRow(
                     label = stringResource(R.string.show_playback_stats),
                     note = stringResource(R.string.show_playback_stats_note),
@@ -390,6 +397,37 @@ private fun ToggleSettingRow(
             modifier = modifier,
             onClick = { onCheckedChange(!checked) },
         )
+    }
+}
+
+@Composable
+private fun PlaybackRendererSettingRow(
+    selected: PlaybackRendererMode,
+    options: List<PlaybackRendererMode>,
+    onSelected: (PlaybackRendererMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    SettingRow(
+        label = stringResource(R.string.playback_renderer_label),
+        note = stringResource(R.string.playback_renderer_note),
+    ) {
+        PillDropdown(
+            text = stringResource(selected.labelRes),
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            contentDescription = stringResource(R.string.playback_renderer_options),
+        ) {
+            options.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(mode.labelRes)) },
+                    onClick = {
+                        expanded = false
+                        onSelected(mode)
+                    },
+                )
+            }
+        }
     }
 }
 

@@ -10,8 +10,7 @@ import android.util.Log
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.PixelCopy
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
 import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
@@ -19,13 +18,15 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.playback.PlaybackLayoutView
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.playback.calculateVideoPresentationLayout
 import com.example.moqandroid.protocol.VideoLayoutEvent
 
-class PlayerScreen(
+class PlayerScreen internal constructor(
     private val activity: Activity,
     broadcastName: String,
-    surfaceCallback: SurfaceHolder.Callback,
+    private val rendererMode: PlaybackRendererMode,
+    private val surfaceListener: PlayerSurfaceListener,
 ) : PlaybackLayoutView {
     private var videoWidth: Int? = null
     private var videoHeight: Int? = null
@@ -44,16 +45,38 @@ class PlayerScreen(
     private var freezeFrameSubmitted = false
     private val afterFreezeActions = mutableListOf<() -> Unit>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val overlaysEnabled = rendererMode == PlaybackRendererMode.SurfaceView
 
-    val surfaceView: SurfaceView = SurfaceView(activity).apply {
-        isFocusable = false
-        holder.addCallback(surfaceCallback)
-    }
+    private val renderSurface = createPlaybackRenderSurface(
+        context = activity,
+        mode = rendererMode,
+        events = object : PlaybackRenderSurfaceEvents {
+            override fun onAvailable(surface: Surface) {
+                traceSurfaceEvent("surface created")
+                surfaceListener.onSurfaceAvailable(this@PlayerScreen, surface)
+            }
+
+            override fun onChanged(format: Int?, width: Int, height: Int) {
+                val formatLabel = format?.toString() ?: "texture"
+                traceSurfaceEvent("surface changed format=$formatLabel", width, height)
+                scheduleSurfaceLayout()
+            }
+
+            override fun onRedrawNeeded() {
+                traceSurfaceEvent("surface redraw needed")
+            }
+
+            override fun onDestroyed() {
+                traceSurfaceEvent("surface destroyed")
+                surfaceListener.onSurfaceDestroyed(this@PlayerScreen)
+            }
+        },
+    )
 
     private val videoPresentation = FrameLayout(activity).apply {
         clipChildren = false
         clipToPadding = false
-        addView(surfaceView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        addView(renderSurface.view, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
     }
 
     val status: TextView = TextView(activity).apply {
@@ -78,16 +101,18 @@ class PlayerScreen(
     private val rootFrame = FrameLayout(activity).apply {
         setBackgroundColor(Color.BLACK)
         addView(videoPresentation, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        addView(videoFreeze, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        addView(videoShutter, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        addView(
-            status,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP,
-            ),
-        )
+        if (overlaysEnabled) {
+            addView(videoFreeze, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            addView(videoShutter, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            addView(
+                status,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP,
+                ),
+            )
+        }
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             logSnapshot("root layout changed")
             scheduleSurfaceLayout()
@@ -124,10 +149,15 @@ class PlayerScreen(
                 "target=${event.width}x${event.height} rotation=${event.rotation ?: "none"}",
         )
 
-        val surfaceFrame = surfaceView.holder.surfaceFrame
-        val width = surfaceFrame.width().takeIf { it > 0 } ?: surfaceView.width
-        val height = surfaceFrame.height().takeIf { it > 0 } ?: surfaceView.height
-        if (!surfaceView.holder.surface.isValid || width <= 0 || height <= 0) {
+        if (!overlaysEnabled) {
+            freezeFrameSubmitted = true
+            onFrozen()
+            return
+        }
+
+        val copySource = renderSurface.pixelCopySource
+        val (width, height) = renderSurface.surfaceSize()
+        if (copySource == null || !renderSurface.isValid || width <= 0 || height <= 0) {
             logSnapshot("layout freeze unavailable, continuing without PixelCopy")
             completeFreezePreparation(event.generation, onFrozen, onTimeout)
             return
@@ -141,7 +171,7 @@ class PlayerScreen(
             return
         }
         PixelCopy.request(
-            surfaceView,
+            copySource,
             bitmap,
             { result ->
                 if (activeLayoutGeneration != event.generation || requestId != freezeRequestId) {
@@ -220,10 +250,17 @@ class PlayerScreen(
         freezeRequestId += 1
         hideVideoFreeze()
         mainHandler.removeCallbacksAndMessages(null)
+        renderSurface.release()
     }
 
     override fun coverVideo(transitionId: Int, onCovered: () -> Unit) {
         activeTransitionId = transitionId
+        if (!overlaysEnabled) {
+            logSnapshot("video cover skipped for compatibility renderer")
+            startFrameTrace(transitionId)
+            onCovered()
+            return
+        }
         videoShutter.visibility = View.VISIBLE
         logSnapshot("shutter visible requested")
         startFrameTrace(transitionId)
@@ -249,6 +286,11 @@ class PlayerScreen(
             return
         }
         logSnapshot("target frame rendered callback")
+        if (!overlaysEnabled) {
+            hideVideoFreeze()
+            logSnapshot("target frame visible without overlays")
+            return
+        }
         if (videoFreeze.visibility == View.VISIBLE) {
             hideVideoFreeze()
         }
@@ -322,12 +364,10 @@ class PlayerScreen(
         val surfaceWidth = layout.surfaceWidth
         val surfaceHeight = layout.surfaceHeight
 
-        // SurfaceView owns a separately composed surface, so apply the mirror to the
-        // SurfaceView itself instead of relying on a parent View transform.
-        surfaceView.scaleX = if (videoFlip) -1f else 1f
+        renderSurface.view.scaleX = if (videoFlip) -1f else 1f
 
         val presentationParams = videoPresentation.layoutParams as FrameLayout.LayoutParams
-        val surfaceParams = surfaceView.layoutParams as FrameLayout.LayoutParams
+        val surfaceParams = renderSurface.view.layoutParams as FrameLayout.LayoutParams
         if (
             presentationParams.width == targetWidth &&
             presentationParams.height == targetHeight &&
@@ -341,7 +381,7 @@ class PlayerScreen(
         }
 
         videoPresentation.layoutParams = FrameLayout.LayoutParams(targetWidth, targetHeight, Gravity.CENTER)
-        surfaceView.layoutParams = FrameLayout.LayoutParams(surfaceWidth, surfaceHeight, Gravity.CENTER)
+        renderSurface.view.layoutParams = FrameLayout.LayoutParams(surfaceWidth, surfaceHeight, Gravity.CENTER)
         logSnapshot(
             "surface layout requested display=${targetWidth}x$targetHeight " +
                 "surface=${surfaceWidth}x$surfaceHeight rotation=$videoRotationDegrees flip=$videoFlip",
@@ -382,9 +422,9 @@ class PlayerScreen(
         val sourceHeight = videoHeight ?: return
         if (containerWidth <= 0 || containerHeight <= 0) return
         if (videoPresentation.width != targetWidth || videoPresentation.height != targetHeight) return
-        if (surfaceView.width != surfaceWidth || surfaceView.height != surfaceHeight) return
-        val surfaceFrame = surfaceView.holder.surfaceFrame
-        if (surfaceFrame.width() != surfaceWidth || surfaceFrame.height() != surfaceHeight) return
+        if (renderSurface.view.width != surfaceWidth || renderSurface.view.height != surfaceHeight) return
+        val (renderWidth, renderHeight) = renderSurface.surfaceSize()
+        if (renderWidth != surfaceWidth || renderHeight != surfaceHeight) return
 
         val sourceLandscape = sourceWidth > sourceHeight
         val containerLandscape = containerWidth > containerHeight
@@ -398,11 +438,6 @@ class PlayerScreen(
     fun traceSurfaceEvent(event: String, width: Int? = null, height: Int? = null) {
         val size = if (width != null && height != null) " callback=${width}x$height" else ""
         logSnapshot("$event$size")
-    }
-
-    fun onSurfaceChanged(format: Int, width: Int, height: Int) {
-        traceSurfaceEvent("surface changed format=$format", width, height)
-        scheduleSurfaceLayout()
     }
 
     override fun traceSnapshot(event: String) {
@@ -483,16 +518,18 @@ class PlayerScreen(
 
     private fun logSnapshot(event: String) {
         val transitionId = activeTransitionId ?: 0
-        val surfaceFrame = surfaceView.holder.surfaceFrame
+        val (surfaceWidth, surfaceHeight) = renderSurface.surfaceSize()
         Log.i(
             LOG_TAG,
             "rotationTrace=$transitionId $event elapsedMs=${SystemClock.elapsedRealtime()} " +
-                "displayRotation=${surfaceView.display?.rotation ?: -1} " +
+                "renderer=${rendererMode.storageValue} " +
+                "displayRotation=${renderSurface.view.display?.rotation ?: -1} " +
                 "root=${rootFrame.width}x${rootFrame.height} " +
-                "surfaceView=${surfaceView.width}x${surfaceView.height} scaleX=${surfaceView.scaleX} " +
-                "surfaceFrame=${surfaceFrame.width()}x${surfaceFrame.height()} " +
+                "renderView=${renderSurface.view.width}x${renderSurface.view.height} " +
+                "scaleX=${renderSurface.view.scaleX} " +
+                "surface=${surfaceWidth}x$surfaceHeight " +
                 "shutter=${videoShutter.visibility} freeze=${videoFreeze.visibility} " +
-                "attached=${surfaceView.isAttachedToWindow}",
+                "attached=${renderSurface.view.isAttachedToWindow}",
         )
     }
 
@@ -501,4 +538,10 @@ class PlayerScreen(
         const val TRACE_FRAME_COUNT = 24
         const val VIDEO_LAYOUT_TIMEOUT_MS = 3_000L
     }
+}
+
+internal interface PlayerSurfaceListener {
+    fun onSurfaceAvailable(screen: PlayerScreen, surface: Surface)
+
+    fun onSurfaceDestroyed(screen: PlayerScreen)
 }

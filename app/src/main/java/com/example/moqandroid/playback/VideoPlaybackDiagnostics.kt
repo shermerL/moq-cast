@@ -9,6 +9,7 @@ internal class VideoPlaybackDiagnostics(
     private val trackName: String,
     private val codecName: String,
     private val enabled: Boolean,
+    private val cmafDetailsEnabled: Boolean,
 ) {
     private val surfaceFrames = AtomicLong()
     private val lastSurfacePtsUs = AtomicLong(NO_TIMESTAMP)
@@ -29,8 +30,12 @@ internal class VideoPlaybackDiagnostics(
     private var waitedOutputs = 0
     private var maxInputForwardGapUs = 0L
     private var maxWaitUs = 0L
+    private var avSamples = 0
+    private var avClockUnavailable = 0
+    private var avLateDrops = 0
     private var minAvDeltaUs: Long? = null
     private var maxAvDeltaUs: Long? = null
+    private var lastAvDeltaUs: Long? = null
     private var lastSurfaceFrames = 0L
     private var lastHeldLogMs = 0L
 
@@ -47,6 +52,7 @@ internal class VideoPlaybackDiagnostics(
 
         if (!keyframe) return
         keyframes += 1
+        if (!cmafDetailsEnabled) return
         val nal = payload.summarizeAvcNalUnits()
         val level = if (nal.hasIdr) Log.INFO else Log.WARN
         Log.println(
@@ -63,6 +69,8 @@ internal class VideoPlaybackDiagnostics(
         rendered: Boolean,
         audioDeltaUs: Long?,
         waitedUs: Long,
+        audioClockUnavailable: Boolean,
+        lateForAudio: Boolean,
     ) {
         if (!enabled) return
         outputFrames += 1
@@ -76,9 +84,13 @@ internal class VideoPlaybackDiagnostics(
             waitedOutputs += 1
             maxWaitUs = maxOf(maxWaitUs, waitedUs)
         }
+        if (audioClockUnavailable) avClockUnavailable += 1
+        if (lateForAudio) avLateDrops += 1
         audioDeltaUs?.let { deltaUs ->
+            avSamples += 1
             minAvDeltaUs = minAvDeltaUs?.let { minOf(it, deltaUs) } ?: deltaUs
             maxAvDeltaUs = maxAvDeltaUs?.let { maxOf(it, deltaUs) } ?: deltaUs
+            lastAvDeltaUs = deltaUs
         }
     }
 
@@ -89,7 +101,7 @@ internal class VideoPlaybackDiagnostics(
         lastHeldLogMs = now
         Log.w(
             LOG_TAG,
-            "CMAF video output held track=$trackName ptsUs=$presentationTimeUs " +
+            "video output held for A/V sync track=$trackName ptsUs=$presentationTimeUs " +
                 "audioPositionUs=$audioPositionUs remainingUs=$remainingUs heldUs=$heldUs",
         )
     }
@@ -113,14 +125,16 @@ internal class VideoPlaybackDiagnostics(
         val surfaceAgeMs = if (surfaceFrameMs == NO_TIMESTAMP) "none" else (now - surfaceFrameMs).toString()
         Log.i(
             LOG_TAG,
-            "CMAF video diagnostics track=$trackName codec=$codecName elapsedMs=$elapsedMs " +
+            "video diagnostics track=$trackName codec=$codecName elapsedMs=$elapsedMs " +
                 "input=$inputFrames keyframes=$keyframes bytes=$inputBytes " +
                 "inputLastPtsUs=${lastInputPtsUs ?: "none"} inputPtsRegressions=$inputPtsRegressions " +
                 "inputMaxForwardGapUs=$maxInputForwardGapUs output=$outputFrames " +
                 "zeroSize=$zeroSizeOutputs outputLastPtsUs=${lastOutputPtsUs ?: "none"} " +
                 "outputPtsRegressions=$outputPtsRegressions " +
                 "release=$renderedOutputs drop=$droppedOutputs waits=$waitedOutputs maxWaitUs=$maxWaitUs " +
-                "avDeltaUs=${minAvDeltaUs ?: "none"}..${maxAvDeltaUs ?: "none"} " +
+                "avSyncSamples=$avSamples avDeltaUs=${minAvDeltaUs ?: "none"}..${maxAvDeltaUs ?: "none"} " +
+                "avLastDeltaUs=${lastAvDeltaUs ?: "none"} avClockUnavailable=$avClockUnavailable " +
+                "avLateDrops=$avLateDrops " +
                 "surfaceCallbacks=$intervalSurfaceFrames surfaceLastPtsUs=${lastSurfacePtsUs.get().asTimestamp()} " +
                 "surfaceAgeMs=$surfaceAgeMs",
         )
@@ -138,8 +152,12 @@ internal class VideoPlaybackDiagnostics(
         waitedOutputs = 0
         maxInputForwardGapUs = 0
         maxWaitUs = 0
+        avSamples = 0
+        avClockUnavailable = 0
+        avLateDrops = 0
         minAvDeltaUs = null
         maxAvDeltaUs = null
+        lastAvDeltaUs = null
         lastSurfaceFrames = totalSurfaceFrames
     }
 

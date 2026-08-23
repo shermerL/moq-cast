@@ -3,44 +3,64 @@ package com.example.moqandroid.publish.encoder
 import com.example.moqandroid.publish.VideoPublishConfig
 
 class H264EncoderAttemptPlanner(
-    private val capabilityResolver: CodecCapabilityResolver = CodecCapabilityResolver(),
+    private val resolveCapability: (EncoderCapabilityRequest) -> EncoderCapability =
+        CodecCapabilityResolver()::resolveH264Encoder,
 ) {
     fun attempts(config: VideoPublishConfig): List<EncoderAttempt> {
-        val capability = capabilityResolver.resolveH264Encoder(
+        return when (config.encoderPolicy) {
+            VideoEncoderPolicy.Default -> defaultAttempts(
+                config,
+                preferredCapability = resolve(config, config.h264ProfilePreference),
+                fallbackCapability = resolve(config, null),
+            )
+
+            VideoEncoderPolicy.LegacyH264 -> legacyAttempts(config)
+        }
+    }
+
+    private fun legacyAttempts(config: VideoPublishConfig): List<EncoderAttempt> {
+        val primaryCapability = resolve(config, H264ProfilePreference.Baseline)
+        val fallbackConfig = config.alignForFallback()
+        val fallbackCapability = resolve(fallbackConfig, null)
+        return listOf(
+            EncoderAttempt(
+                config = config,
+                profile = H264ProfilePreference.Baseline.profile,
+                profileName = "baseline",
+                encoderName = primaryCapability.encoderName,
+                capability = primaryCapability,
+            ),
+            EncoderAttempt(
+                config = fallbackConfig,
+                profile = null,
+                profileName = "default",
+                encoderName = fallbackCapability.encoderName,
+                capability = fallbackCapability,
+                isFallback = true,
+            ),
+        )
+    }
+
+    private fun resolve(
+        config: VideoPublishConfig,
+        profilePreference: H264ProfilePreference?,
+    ): EncoderCapability {
+        return resolveCapability(
             EncoderCapabilityRequest(
                 width = config.width,
                 height = config.height,
                 frameRate = config.frameRate,
+                profilePreference = profilePreference,
             ),
         )
-        return when (config.encoderPolicy) {
-            VideoEncoderPolicy.Default -> defaultAttempts(config, capability)
-
-            VideoEncoderPolicy.LegacyH264 -> listOf(
-                EncoderAttempt(
-                    config = config,
-                    profile = H264ProfilePreference.Baseline.profile,
-                    profileName = "baseline",
-                    encoderName = capability.encoderName,
-                    capability = capability,
-                ),
-                EncoderAttempt(
-                    config = config.alignForFallback(),
-                    profile = null,
-                    profileName = "default",
-                    encoderName = capability.encoderName,
-                    capability = capability,
-                    isFallback = true,
-                ),
-            )
-        }
     }
 
     private fun defaultAttempts(
         config: VideoPublishConfig,
-        capability: EncoderCapability,
+        preferredCapability: EncoderCapability,
+        fallbackCapability: EncoderCapability,
     ): List<EncoderAttempt> {
-        val preferred = config.h264ProfilePreference.supportedBy(capability)
+        val preferred = config.h264ProfilePreference.supportedBy(preferredCapability)
         val attempts = mutableListOf<EncoderAttempt>()
 
         if (preferred != null) {
@@ -48,8 +68,8 @@ class H264EncoderAttemptPlanner(
                 config = config,
                 profile = preferred.profile,
                 profileName = preferred.profileName,
-                encoderName = capability.encoderName,
-                capability = capability,
+                encoderName = preferredCapability.encoderName,
+                capability = preferredCapability,
             )
         }
 
@@ -57,8 +77,8 @@ class H264EncoderAttemptPlanner(
             config = config,
             profile = null,
             profileName = "default",
-            encoderName = capability.encoderName,
-            capability = capability,
+            encoderName = fallbackCapability.encoderName,
+            capability = fallbackCapability,
             isFallback = attempts.isNotEmpty(),
         )
 

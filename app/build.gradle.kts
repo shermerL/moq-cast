@@ -12,8 +12,12 @@ android {
         applicationId = "com.example.moqandroid"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.4.0"
+        versionCode = 7
+        versionName = "0.4.1-dev.1"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     compileOptions {
@@ -34,7 +38,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/moq-ffi-0.3.8-dev+64.g68cf6460.request-path-android-arm64.aar"))
+    implementation(files("libs/moq-ffi-0.3.8-dev-request-path-android-arm64-v7a.aar"))
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.activity:activity-compose:1.10.1")
@@ -45,7 +49,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
-    implementation("androidx.media3:media3-muxer:1.9.2")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

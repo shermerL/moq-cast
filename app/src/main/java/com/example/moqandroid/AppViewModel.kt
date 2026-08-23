@@ -2,7 +2,6 @@ package com.example.moqandroid
 
 import android.app.Application
 import android.content.Intent
-import android.net.Uri
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Surface
@@ -23,12 +22,12 @@ import com.example.moqandroid.network.lan.server.MoqPeerServer
 import com.example.moqandroid.network.lan.server.PeerListenerState
 import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.playback.PlaybackController
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.playback.PlayerState
 import com.example.moqandroid.publish.CameraPublishStartRequest
 import com.example.moqandroid.publish.PublishController
 import com.example.moqandroid.publish.PublishPermissions
 import com.example.moqandroid.publish.PublishPreparationInput
-import com.example.moqandroid.publish.FilePublishStartRequest
 import com.example.moqandroid.publish.PublishRequest
 import com.example.moqandroid.publish.PublishSourceType
 import com.example.moqandroid.publish.PublishState
@@ -40,21 +39,16 @@ import com.example.moqandroid.publish.camera.CameraLensFacing
 import com.example.moqandroid.publish.camera.CameraQualityPreset
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import com.example.moqandroid.publish.encoder.VideoEncoderPolicy
-import com.example.moqandroid.publish.file.PublishFileProbe
-import com.example.moqandroid.publish.file.PublishFileState
 import com.example.moqandroid.ui.app.PublishPanelMode
 import com.example.moqandroid.ui.nearby.NearbyMediaState
 import com.example.moqandroid.ui.nearby.NearbyMediaStateReducer
 import com.example.moqandroid.ui.nearby.PeerListItem
 import com.example.moqandroid.ui.nearby.PeerListProjector
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val logTag = "MoqAndroid"
@@ -63,17 +57,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val initialLanguage = configStore.loadLanguage()
     private val initialPublishCompatibilityMode = configStore.loadPublishCompatibilityMode()
     private val initialH264ProfilePreference = configStore.loadH264ProfilePreference()
+    private val initialPlaybackRendererMode = configStore.loadPlaybackRendererMode()
     private val initialShowPlaybackStats = configStore.loadShowPlaybackStats()
     private val initialLanMeshEnabled = configStore.loadLanMeshEnabled()
     private var appLanguage = initialLanguage
     private var localizedResources = application.withAppLanguage(initialLanguage)
     private val publishController = PublishController(application)
-    private val publishFileProbe = PublishFileProbe(application)
     private val playbackController = PlaybackController(viewModelScope, logTag)
     private val lanMesh = (application as MoqCastApplication).lanRuntimeOwner
     private var lanUiLease: LanRuntimeOwner.UiLease? = null
     private var pendingLanPublishReservation: LanRuntimeOwner.PublishReservation? = null
-    private var publishFileProbeJob: Job? = null
     private var nearbyScreenPublishPending = false
     private var playbackTarget = PlaybackTarget.Relay
 
@@ -86,6 +79,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            playbackRendererMode = initialPlaybackRendererMode,
             showPlaybackStats = initialShowPlaybackStats,
             lanMeshEnabled = initialLanMeshEnabled,
         ),
@@ -98,6 +92,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             language = initialLanguage,
             publishCompatibilityMode = initialPublishCompatibilityMode,
             h264ProfilePreference = initialH264ProfilePreference,
+            playbackRendererMode = initialPlaybackRendererMode,
             showPlaybackStats = initialShowPlaybackStats,
             lanMeshEnabled = initialLanMeshEnabled,
         ),
@@ -128,8 +123,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     var cameraQualityPreset by mutableStateOf(CameraQualityPreset.Auto)
         private set
     var publishSource by mutableStateOf(PublishSourceType.Screen)
-        private set
-    var publishFileState by mutableStateOf<PublishFileState>(PublishFileState.NotSelected)
         private set
     var playerBroadcast by mutableStateOf<String?>(null)
         private set
@@ -162,6 +155,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settingsH264ProfilePreference: H264ProfilePreference
         get() = settingsState.h264ProfilePreference
 
+    val settingsPlaybackRendererMode: PlaybackRendererMode
+        get() = settingsState.playbackRendererMode
+
     val settingsShowPlaybackStats: Boolean
         get() = settingsState.showPlaybackStats
 
@@ -173,6 +169,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val h264ProfileOptions: List<H264ProfilePreference>
         get() = H264ProfilePreference.entries
+
+    val playbackRendererOptions: List<PlaybackRendererMode>
+        get() = PlaybackRendererMode.entries
+
+    val playbackRendererMode: PlaybackRendererMode
+        get() = configState.playbackRendererMode
 
     val nearbyDiscoveryState = lanMesh.discoveryState
     val nearbyServerState = lanMesh.serverState
@@ -189,6 +191,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             localPeerId = server.serviceName(),
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val isNearbyScreenPublishPending: Boolean
+        get() = publishController.status.value.let { snapshot ->
+            snapshot.state == PublishState.Preparing && snapshot.target == PublishTarget.Lan
+        }
 
     init {
         currentScreen = when {
@@ -233,6 +240,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         settingsState = settingsState.withH264ProfilePreference(value)
     }
 
+    fun updateSettingsPlaybackRendererMode(value: PlaybackRendererMode) {
+        settingsState = settingsState.withPlaybackRendererMode(value)
+    }
+
     fun updateSettingsShowPlaybackStats(value: Boolean) {
         settingsState = settingsState.withShowPlaybackStats(value)
     }
@@ -274,25 +285,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updatePublishSource(value: PublishSourceType) {
         publishSource = value
-    }
-
-    fun selectPublishFile(uri: Uri) {
-        val displayName = uri.lastPathSegment
-        publishFileProbeJob?.cancel()
-        publishFileState = PublishFileState.Probing(displayName)
-        publishFileProbeJob = viewModelScope.launch {
-            publishFileState = try {
-                withContext(Dispatchers.IO) { publishFileProbe.probe(uri) }
-                    .let(PublishFileState::Ready)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                PublishFileState.Failed(
-                    displayName = displayName,
-                    reason = error.message ?: error::class.java.simpleName,
-                )
-            }
-        }
     }
 
     fun showMainUi() {
@@ -346,12 +338,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .withLanguage(settingsState.language)
             .withPublishCompatibilityMode(settingsState.publishCompatibilityMode)
             .withH264ProfilePreference(settingsState.h264ProfilePreference)
+            .withPlaybackRendererMode(settingsState.playbackRendererMode)
             .withShowPlaybackStats(settingsState.showPlaybackStats)
             .withLanMeshEnabled(settingsState.lanMeshEnabled)
             .withStatus(text(R.string.relay_required))
         configStore.saveLanguage(settingsState.language)
         configStore.savePublishCompatibilityMode(settingsState.publishCompatibilityMode)
         configStore.saveH264ProfilePreference(settingsState.h264ProfilePreference)
+        configStore.savePlaybackRendererMode(settingsState.playbackRendererMode)
         configStore.saveShowPlaybackStats(settingsState.showPlaybackStats)
         configStore.saveLanMeshEnabled(settingsState.lanMeshEnabled)
         publishStatusMessage = text(R.string.relay_updated)
@@ -394,7 +388,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 includeMicrophone = includeMicrophone,
                 cameraLensFacing = cameraLensFacing,
                 cameraQualityPreset = cameraQualityPreset,
-                publishFile = (publishFileState as? PublishFileState.Ready)?.file,
                 permissions = PublishPermissions(
                     camera = hasCameraPermission,
                     notifications = hasNotificationPermission,
@@ -476,7 +469,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 includeMicrophone = false,
                 cameraLensFacing = cameraLensFacing,
                 cameraQualityPreset = cameraQualityPreset,
-                publishFile = null,
                 permissions = PublishPermissions(
                     camera = true,
                     notifications = hasNotificationPermission,
@@ -558,22 +550,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun startFilePublish() {
-        val file = (publishFileState as? PublishFileState.Ready)?.file
-        if (file == null) {
-            failPublish("Choose a local video first.")
-            return
-        }
-        publishStatusMessage = text(R.string.publish_status_starting_file)
-        publishController.startFile(
-            FilePublishStartRequest(
-                relayConfig = relayConfig,
-                broadcastName = activeBroadcastName,
-                file = file,
-            ),
-        )
-    }
-
     fun startPlayback(
         surface: Surface,
         onPlayerState: (PlayerState, String) -> Unit,
@@ -588,14 +564,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onPlayerState = onPlayerState,
             )
             PlaybackTarget.Nearby -> {
-                val consumer = lanMesh.consume()
-                if (consumer == null) {
-                    onPlayerState(PlayerState.Failed("Nearby receiver is not running."), "Nearby receiver is not running.")
-                    return
-                }
                 playbackController.startPeer(
                     surface = surface,
-                    originConsumer = consumer,
+                    originConsumerProvider = lanMesh::consume,
                     peerName = text(R.string.nearby_device),
                     broadcastName = nextBroadcast,
                     onPlayerState = onPlayerState,
@@ -608,6 +579,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         playbackController.stop()
         subscribeStatusMessage = message
         if (playbackTarget == PlaybackTarget.Nearby) nearbyMediaState = NearbyMediaStateReducer.stopped()
+    }
+
+    fun suspendPlaybackForSurface(message: String) {
+        playbackController.stop()
+        subscribeStatusMessage = message
     }
 
     fun stopPublish(message: String) {

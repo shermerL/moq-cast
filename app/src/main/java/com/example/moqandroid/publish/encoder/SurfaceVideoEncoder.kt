@@ -1,14 +1,11 @@
 package com.example.moqandroid.publish.encoder
 
-import android.media.MediaCodec
-import android.media.MediaCodecInfo
-import android.media.MediaFormat
-import android.os.Bundle
 import android.util.Log
-import android.view.Surface
 import com.example.moqandroid.publish.PublisherEvent
 import com.example.moqandroid.publish.PublisherLifecycleEventSink
 import com.example.moqandroid.publish.PublisherState
+import com.example.moqandroid.publish.PublishTimeline
+import com.example.moqandroid.publish.VideoPublishTimeline
 import com.example.moqandroid.publish.VideoPublishConfig
 import com.example.moqandroid.publish.VideoPublishSource
 import com.example.moqandroid.publish.VideoPublishTransition
@@ -17,17 +14,19 @@ import com.example.moqandroid.protocol.VideoLayoutEvent
 import com.example.moqandroid.protocol.VideoLayoutPhase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import uniffi.moq.MoqMediaStreamProducer
 import uniffi.moq.MoqFrame
+import uniffi.moq.MoqMediaProducer
 import uniffi.moq.MoqTrackProducer
 import kotlin.coroutines.coroutineContext
 
-class SurfaceVideoEncoder(
+internal class SurfaceVideoEncoder(
     private val source: VideoPublishSource,
-    private val media: MoqMediaStreamProducer,
+    private val media: MoqMediaProducer,
     private val videoLayout: MoqTrackProducer?,
+    private val timeline: PublishTimeline,
     private val connectionLabel: String,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
@@ -43,6 +42,7 @@ class SurfaceVideoEncoder(
         var activeConfig = config
         var activeGeneration: Long? = null
         var trackStarted = false
+        val videoTimeline = timeline.video()
 
         try {
             while (coroutineContext.isActive) {
@@ -51,6 +51,7 @@ class SurfaceVideoEncoder(
                     broadcastName = broadcastName,
                     audioConfig = audioConfig,
                     stats = stats,
+                    videoTimeline = videoTimeline,
                     generation = activeGeneration,
                     onEncodingStarted = {
                         if (!trackStarted) {
@@ -71,7 +72,6 @@ class SurfaceVideoEncoder(
             }
         } finally {
             if (trackStarted) lifecycle.emit(PublisherEvent.TrackStopped(VIDEO_TRACK_NAME))
-            runCatching { media.finish() }
         }
     }
 
@@ -80,6 +80,7 @@ class SurfaceVideoEncoder(
         broadcastName: String,
         audioConfig: AudioPublishConfig?,
         stats: PublishStatsTracker,
+        videoTimeline: VideoPublishTimeline,
         generation: Long?,
         onEncodingStarted: () -> Unit,
     ): VideoPublishTransition? {
@@ -87,10 +88,6 @@ class SurfaceVideoEncoder(
         val attempts = attemptPlanner.attempts(config)
         for ((index, attempt) in attempts.withIndex()) {
             val isFallbackAvailable = index < attempts.lastIndex
-            var codec: MediaCodec? = null
-            var inputSurface: Surface? = null
-            var codecStarted = false
-            var sourceAttached = false
             var encodingStarted = false
 
             try {
@@ -105,32 +102,36 @@ class SurfaceVideoEncoder(
                         "supportsBaseline=${attempt.capability.supportsBaseline} " +
                         "supportsFormat=${attempt.capability.supportsRequestedFormat}",
                 )
-                codec = MediaCodec.createEncoderByType(MIME_AVC)
-                codec.configure(attempt.mediaFormat(), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                inputSurface = codec.createInputSurface()
-                codec.start()
-                codecStarted = true
+                H264CodecSession.open(attempt).use { encoder ->
+                    var sourceAttached = false
+                    try {
+                        source.attachEncoderSurface(encoder.inputSurface, attempt.config)
+                        sourceAttached = true
+                        encoder.requestKeyFrame()
 
-                source.attachEncoderSurface(inputSurface, attempt.config)
-                sourceAttached = true
-                codec.setParameters(Bundle().apply {
-                    putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
-                })
-
-                onEncodingStarted()
-                lifecycle.update(
-                    PublisherState.Publishing(
-                        relayUrl = connectionLabel,
-                        broadcastName = broadcastName,
-                        width = attempt.config.width,
-                        height = attempt.config.height,
-                        bitrate = attempt.config.bitrate,
-                        frameRate = attempt.config.frameRate,
-                        audioEnabled = audioConfig != null,
-                    ),
-                )
-                encodingStarted = true
-                return drain(codec, media, stats, lifecycle, attempt.config, generation)
+                        onEncodingStarted()
+                        lifecycle.update(
+                            PublisherState.Publishing(
+                                relayUrl = connectionLabel,
+                                broadcastName = broadcastName,
+                                width = attempt.config.width,
+                                height = attempt.config.height,
+                                bitrate = attempt.config.bitrate,
+                                frameRate = attempt.config.frameRate,
+                                audioEnabled = audioConfig != null,
+                            ),
+                        )
+                        encodingStarted = true
+                        videoTimeline.beginGeneration()
+                        return drain(encoder, stats, videoTimeline, attempt.config, generation)
+                    } finally {
+                        if (sourceAttached) {
+                            withContext(NonCancellable) {
+                                source.detachEncoderSurface()
+                            }
+                        }
+                    }
+                }
             } catch (error: Throwable) {
                 if (encodingStarted && error !is CancellationException) {
                     lifecycle.emit(PublisherEvent.TrackError(VIDEO_TRACK_NAME, error.message ?: error::class.java.name))
@@ -148,45 +149,25 @@ class SurfaceVideoEncoder(
                         "encoder=${attempt.encoderName}",
                     error,
                 )
-            } finally {
-                try {
-                    if (sourceAttached) source.detachEncoderSurface()
-                } finally {
-                    if (codecStarted) runCatching { codec?.stop() }
-                    codec?.release()
-                    inputSurface?.release()
-                }
             }
         }
 
         throw lastError ?: IllegalStateException("H.264 encoder did not start.")
     }
 
-    private fun EncoderAttempt.mediaFormat(): MediaFormat {
-        return MediaFormat.createVideoFormat(MIME_AVC, config.width, config.height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
-            setInteger(MediaFormat.KEY_FRAME_RATE, config.frameRate)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, config.iFrameIntervalSeconds)
-            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-            profile?.let { setInteger(MediaFormat.KEY_PROFILE, it) }
-        }
-    }
-
     private suspend fun drain(
-        codec: MediaCodec,
-        media: MoqMediaStreamProducer,
+        encoder: H264CodecSession,
         stats: PublishStatsTracker,
-        lifecycle: PublisherLifecycleEventSink,
+        videoTimeline: VideoPublishTimeline,
         activeConfig: VideoPublishConfig,
         generation: Long?,
     ): VideoPublishTransition? {
-        val info = MediaCodec.BufferInfo()
-        var codecConfig: ByteArray? = null
+        val accessUnits = H264AccessUnitAssembler()
         var awaitingKeyFrame = true
         var loggedDiscardedDelta = false
         var outputWasSuspended = false
         var layoutReadySent = generation == null
+        var lastTimelineLogUs: Long? = null
         while (coroutineContext.isActive) {
             source.pollFailure()?.let { throw it }
             publishPendingLayoutEvents()
@@ -198,96 +179,112 @@ class SurfaceVideoEncoder(
                     return nextConfig
                 }
             }
-            when (val outputIndex = codec.dequeueOutputBuffer(info, 10_000)) {
-                MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
-                MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    val outputFormat = codec.outputFormat
-                    val spsBytes = outputFormat.getByteBuffer("csd-0")?.remaining() ?: 0
-                    val ppsBytes = outputFormat.getByteBuffer("csd-1")?.remaining() ?: 0
-                    codecConfig = outputFormat.h264CodecConfig()
+            when (val output = encoder.dequeueOutput(OUTPUT_TIMEOUT_US)) {
+                H264CodecOutput.TryAgain -> Unit
+                is H264CodecOutput.FormatChanged -> {
+                    accessUnits.updateCodecConfig(output.codecConfig)
                     Log.i(
                         LOG_TAG,
                         "H.264 encoder output format " +
-                            "size=${outputFormat.integerOrUnknown(MediaFormat.KEY_WIDTH)}x" +
-                            "${outputFormat.integerOrUnknown(MediaFormat.KEY_HEIGHT)} " +
-                            "spsBytes=$spsBytes ppsBytes=$ppsBytes " +
+                            "size=${output.width ?: "unknown"}x${output.height ?: "unknown"} " +
+                            "spsBytes=${output.spsBytes} ppsBytes=${output.ppsBytes} " +
+                            "reorderDepth=${output.outputReorderDepth ?: "unknown"} " +
+                            "maxBFrames=${output.maxBFrames ?: "unknown"} " +
+                            "latencyFrames=${output.latencyFrames ?: "unknown"} " +
                             "catalogFormat=avc3 catalogRotation=unset",
                     )
                 }
-                MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
-                else -> if (outputIndex >= 0) {
-                    val payload = codec.getOutputBuffer(outputIndex)?.readBytes(info) ?: ByteArray(0)
-                    val flags = info.flags
-                    codec.releaseOutputBuffer(outputIndex, false)
+                is H264CodecOutput.AccessUnit -> {
+                    val accessUnit = accessUnits.assemble(
+                        payload = output.payload,
+                        keyFrame = output.keyFrame,
+                    ) ?: continue
+                    val sourceTimestampUs = output.presentationTimeUs
 
-                    if (payload.isNotEmpty()) {
-                        val annexB = payload.toAnnexB()
-                        if (flags.hasCodecConfig()) {
-                            codecConfig = annexB
-                            continue
-                        }
-
-                        if (layoutTransitions?.isOutputSuspended() == true) {
-                            if (!outputWasSuspended) {
-                                Log.i(
-                                    LOG_TAG,
-                                    "suspending H.264 output for screen resize " +
-                                        "size=${activeConfig.width}x${activeConfig.height}",
-                                )
-                            }
-                            outputWasSuspended = true
-                            continue
-                        }
-
-                        if (outputWasSuspended) {
-                            outputWasSuspended = false
-                            awaitingKeyFrame = true
-                            loggedDiscardedDelta = false
-                            codec.setParameters(Bundle().apply {
-                                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
-                            })
+                    if (layoutTransitions?.isOutputSuspended() == true) {
+                        if (!outputWasSuspended) {
                             Log.i(
                                 LOG_TAG,
-                                "screen resize cancelled, waiting for a fresh H.264 IDR " +
+                                "suspending H.264 output for screen resize " +
                                     "size=${activeConfig.width}x${activeConfig.height}",
                             )
                         }
-
-                        val keyFrame = flags.hasKeyFrame()
-                        if (awaitingKeyFrame && !keyFrame) {
-                            if (!loggedDiscardedDelta) {
-                                Log.w(LOG_TAG, "discarding H.264 delta frames until the restarted encoder emits an IDR")
-                                loggedDiscardedDelta = true
-                            }
-                            continue
-                        }
-
-                        val frame = if (keyFrame) annexB.withParameterSets(codecConfig) else annexB
-                        if (awaitingKeyFrame) {
-                            awaitingKeyFrame = false
-                            Log.i(
-                                LOG_TAG,
-                                "H.264 encoder IDR ready size=${activeConfig.width}x${activeConfig.height} " +
-                                    "parameterSetsBytes=${codecConfig?.size ?: 0} " +
-                                    "presentationTimeUs=${info.presentationTimeUs}",
-                            )
-                        }
-                        media.write(frame)
-                        if (!layoutReadySent && generation != null) {
-                            publishLayoutEvent(
-                                VideoLayoutEvent(
-                                    phase = VideoLayoutPhase.Ready,
-                                    generation = generation,
-                                    width = activeConfig.width,
-                                    height = activeConfig.height,
-                                    rotation = null,
-                                ),
-                            )
-                            layoutTransitions?.onLayoutReady(generation)
-                            layoutReadySent = true
-                        }
-                        stats.onFrame(frame.size, lifecycle::emit)
+                        outputWasSuspended = true
+                        continue
                     }
+
+                    if (outputWasSuspended) {
+                        outputWasSuspended = false
+                        awaitingKeyFrame = true
+                        loggedDiscardedDelta = false
+                        encoder.requestKeyFrame()
+                        Log.i(
+                            LOG_TAG,
+                            "screen resize cancelled, waiting for a fresh H.264 IDR " +
+                                "size=${activeConfig.width}x${activeConfig.height}",
+                        )
+                    }
+
+                    if (awaitingKeyFrame && (!accessUnit.isKeyFrame || !accessUnit.hasDecoderConfiguration)) {
+                        if (!loggedDiscardedDelta) {
+                            Log.w(
+                                LOG_TAG,
+                                "discarding H.264 output until the restarted encoder emits SPS, PPS, and IDR",
+                            )
+                            loggedDiscardedDelta = true
+                        }
+                        if (accessUnit.isKeyFrame) encoder.requestKeyFrame()
+                        continue
+                    }
+
+                    if (awaitingKeyFrame) {
+                        awaitingKeyFrame = false
+                        Log.i(
+                            LOG_TAG,
+                            "H.264 encoder IDR ready size=${activeConfig.width}x${activeConfig.height} " +
+                                "parameterSetsBytes=${accessUnit.parameterSetsBytes} " +
+                                "presentationTimeUs=$sourceTimestampUs",
+                        )
+                    }
+                    val timestamp = videoTimeline.map(sourceTimestampUs)
+                    val shouldLogTimeline =
+                        lastTimelineLogUs == null ||
+                            timestamp.sessionElapsedUs - lastTimelineLogUs >= TIMELINE_LOG_INTERVAL_US
+                    val writeStartedUs = if (shouldLogTimeline) timeline.elapsedUs() else null
+                    media.writeFrame(
+                        MoqFrame(
+                            payload = accessUnit.payload,
+                            timestampUs = timestamp.timestampUs.toULong(),
+                        ),
+                    )
+                    if (writeStartedUs != null) {
+                        val writeCompletedUs = timeline.elapsedUs()
+                        Log.i(
+                            LOG_TAG,
+                            "video publish timeline sourcePtsUs=$sourceTimestampUs " +
+                                "mediaPtsUs=${timestamp.timestampUs} " +
+                                "sessionElapsedUs=${timestamp.sessionElapsedUs} " +
+                                "encoderOutputLagUs=${timestamp.sessionElapsedUs - timestamp.timestampUs} " +
+                                "writeDurationUs=${writeCompletedUs - writeStartedUs} " +
+                                "postWriteLagUs=${writeCompletedUs - timestamp.timestampUs} " +
+                                "sourceClock=${if (timestamp.sourceClockMatched) "monotonic" else "anchored"}",
+                        )
+                        lastTimelineLogUs = timestamp.sessionElapsedUs
+                    }
+                    if (!layoutReadySent && generation != null) {
+                        publishLayoutEvent(
+                            VideoLayoutEvent(
+                                phase = VideoLayoutPhase.Ready,
+                                generation = generation,
+                                width = activeConfig.width,
+                                height = activeConfig.height,
+                                rotation = null,
+                            ),
+                        )
+                        layoutTransitions?.onLayoutReady(generation)
+                        layoutReadySent = true
+                    }
+                    stats.onFrame(accessUnit.payload.size, lifecycle::emit)
                 }
             }
         }
@@ -322,43 +319,10 @@ class SurfaceVideoEncoder(
             }
     }
 
-    private fun java.nio.ByteBuffer.readBytes(info: MediaCodec.BufferInfo): ByteArray {
-        position(info.offset)
-        limit(info.offset + info.size)
-        return ByteArray(info.size).also { get(it) }
-    }
-
-    private fun MediaFormat.h264CodecConfig(): ByteArray? {
-        val sps = getByteBuffer("csd-0")?.readRemainingBytes()?.toAnnexB()
-        val pps = getByteBuffer("csd-1")?.readRemainingBytes()?.toAnnexB()
-        return when {
-            sps != null && pps != null -> sps + pps
-            sps != null -> sps
-            pps != null -> pps
-            else -> null
-        }
-    }
-
-    private fun MediaFormat.integerOrUnknown(key: String): String {
-        return if (containsKey(key)) getInteger(key).toString() else "unknown"
-    }
-
-    private fun java.nio.ByteBuffer.readRemainingBytes(): ByteArray {
-        val duplicate = duplicate()
-        return ByteArray(duplicate.remaining()).also { duplicate.get(it) }
-    }
-
-    private fun Int.hasCodecConfig(): Boolean {
-        return this and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-    }
-
-    private fun Int.hasKeyFrame(): Boolean {
-        return this and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
-    }
-
     companion object {
         private const val LOG_TAG = "MoqAndroid"
-        private const val MIME_AVC = "video/avc"
         private const val VIDEO_TRACK_NAME = "video"
+        private const val OUTPUT_TIMEOUT_US = 10_000L
+        private const val TIMELINE_LOG_INTERVAL_US = 5_000_000L
     }
 }

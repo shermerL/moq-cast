@@ -1,6 +1,7 @@
 package com.example.moqandroid.ui.nearby
 
 import com.example.moqandroid.network.lan.discovery.DiscoveryPhase
+import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishTarget
@@ -82,6 +83,11 @@ data class NearbyActionAvailability(
 
 /** Projects media lifecycle and transport facts into actions the Nearby UI may expose. */
 object NearbyActionPolicy {
+    fun canReachPeer(
+        connections: Collection<PeerConnectionState>,
+        activeInboundSessionCount: Int,
+    ): Boolean = connections.any { it == PeerConnectionState.Connected } || activeInboundSessionCount > 0
+
     fun project(
         mediaState: NearbyMediaState,
         canReachPeer: Boolean,

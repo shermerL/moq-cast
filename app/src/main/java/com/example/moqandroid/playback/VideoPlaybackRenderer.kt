@@ -42,7 +42,8 @@ class VideoPlaybackRenderer(
             val playbackDiagnostics = VideoPlaybackDiagnostics(
                 trackName = activeVideo.name,
                 codecName = codec.name,
-                enabled = cmafPlayback && BuildConfig.DEBUG,
+                enabled = BuildConfig.DEBUG,
+                cmafDetailsEnabled = cmafPlayback && BuildConfig.DEBUG,
             )
             var codecStarted = false
             val renderCallbacksEnabled = AtomicBoolean(true)

@@ -23,6 +23,7 @@ class MoqNsdDiscovery(context: Context) {
     private val resolvedPeers = linkedMapOf<String, DiscoveredPeer>()
     private val resolveQueue = ArrayDeque<NsdServiceInfo>()
     private val queuedServices = mutableSetOf<String>()
+    private val resolveAttempts = NsdResolveAttemptPolicy()
 
     private var activeListener: NsdManager.DiscoveryListener? = null
     private var resolvingService: String? = null
@@ -71,6 +72,7 @@ class MoqNsdDiscovery(context: Context) {
                 if (activeListener !== this || stopRequested) return@onMainThread
                 val serviceName = serviceInfo.serviceName
                 availableServices += serviceName
+                resolveAttempts.found(serviceName)
                 Log.i(LOG_TAG, "LAN discovery event=found service=$serviceName")
                 if (
                     serviceName != resolvingService &&
@@ -87,6 +89,7 @@ class MoqNsdDiscovery(context: Context) {
                 val serviceName = serviceInfo.serviceName
                 availableServices -= serviceName
                 queuedServices -= serviceName
+                resolveAttempts.remove(serviceName)
                 resolveQueue.removeAll { it.serviceName == serviceName }
                 if (resolvedPeers.remove(serviceName) != null) {
                     Log.i(LOG_TAG, "LAN discovery event=lost service=$serviceName")
@@ -139,6 +142,7 @@ class MoqNsdDiscovery(context: Context) {
         val listener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = onMainThread {
                 Log.w(LOG_TAG, "Could not resolve MoQ service name=$serviceName code=$errorCode")
+                retryResolve(serviceInfo)
                 finishResolve(serviceName)
             }
 
@@ -158,11 +162,24 @@ class MoqNsdDiscovery(context: Context) {
         }
 
         runCatching {
+            resolveAttempts.started(serviceName)
             @Suppress("DEPRECATION")
             nsdManager.resolveService(serviceInfo, listener)
         }.onFailure { error ->
             Log.w(LOG_TAG, "Could not request MoQ service resolution name=$serviceName", error)
+            retryResolve(serviceInfo)
             finishResolve(serviceName)
+        }
+    }
+
+    private fun retryResolve(serviceInfo: NsdServiceInfo) {
+        val serviceName = serviceInfo.serviceName
+        if (
+            resolveAttempts.canRetry(serviceName, serviceName in availableServices) &&
+            queuedServices.add(serviceName)
+        ) {
+            Log.i(LOG_TAG, "LAN discovery event=resolve-retry service=$serviceName")
+            resolveQueue.addLast(serviceInfo)
         }
     }
 
@@ -248,6 +265,7 @@ class MoqNsdDiscovery(context: Context) {
         resolvedPeers.clear()
         resolveQueue.clear()
         queuedServices.clear()
+        resolveAttempts.clear()
         resolvingService = null
     }
 

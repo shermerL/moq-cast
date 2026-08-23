@@ -14,13 +14,13 @@ interface VideoPublishSource {
     val layoutTransitions: VideoLayoutTransitionCapability?
         get() = null
 
-    fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig)
+    suspend fun attachEncoderSurface(surface: Surface, config: VideoPublishConfig)
 
-    fun detachEncoderSurface()
+    suspend fun detachEncoderSurface()
 
     fun pollFailure(): Throwable? = null
 
-    fun close()
+    suspend fun close()
 }
 
 data class VideoPublishPresentation(
@@ -32,7 +32,6 @@ data class VideoPublishPresentation(
 
 enum class PublishSourceType(val storageValue: String) {
     Camera("camera"),
-    File("file"),
     Screen("screen");
 
     companion object {

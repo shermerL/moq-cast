@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.annotation.StringRes
 import com.example.moqandroid.R
+import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 import java.util.Locale
 
@@ -48,6 +49,7 @@ data class SettingsState(
     val language: AppLanguage = AppLanguage.English,
     val publishCompatibilityMode: Boolean = false,
     val h264ProfilePreference: H264ProfilePreference = H264ProfilePreference.High,
+    val playbackRendererMode: PlaybackRendererMode = PlaybackRendererMode.SurfaceView,
     val showPlaybackStats: Boolean = true,
     val lanMeshEnabled: Boolean = false,
 ) {
@@ -60,6 +62,8 @@ data class SettingsState(
     fun withPublishCompatibilityMode(value: Boolean): SettingsState = copy(publishCompatibilityMode = value)
 
     fun withH264ProfilePreference(value: H264ProfilePreference): SettingsState = copy(h264ProfilePreference = value)
+
+    fun withPlaybackRendererMode(value: PlaybackRendererMode): SettingsState = copy(playbackRendererMode = value)
 
     fun withShowPlaybackStats(value: Boolean): SettingsState = copy(showPlaybackStats = value)
 

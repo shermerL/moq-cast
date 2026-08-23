@@ -10,6 +10,24 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.1-dev.1 (Debug) - 2026-08-23
+
+### 中文
+
+- 支持发现并直连同一局域网内的 MoQCast 设备
+- 支持 `arm64-v8a` 和 `armeabi-v7a` Android 设备
+- 增加 TextureView 兼容播放模式
+- 改善屏幕和系统音频实时发布的稳定性
+- 移除尚未成熟的 Android CMAF/fMP4 文件发布功能
+
+### English
+
+- Discover and connect directly to MoQCast devices on the same LAN
+- Support `arm64-v8a` and `armeabi-v7a` Android devices
+- Add a TextureView compatibility playback mode
+- Improve real-time screen and system audio publishing stability
+- Remove the experimental Android CMAF/fMP4 file publishing path
+
 ## 0.4.0 (Debug) - 2026-08-10
 
 ### 中文

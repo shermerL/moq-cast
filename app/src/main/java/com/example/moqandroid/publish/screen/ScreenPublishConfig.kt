@@ -42,6 +42,16 @@ fun VideoPublishConfig.withScreenSize(sourceWidth: Int, sourceHeight: Int): Vide
     return copy(width = width, height = height)
 }
 
+internal fun requiresScreenLayoutTransition(
+    nextConfig: VideoPublishConfig,
+    requestedConfig: VideoPublishConfig,
+    rotationAxesChanged: Boolean,
+): Boolean {
+    return rotationAxesChanged ||
+        nextConfig.width != requestedConfig.width ||
+        nextConfig.height != requestedConfig.height
+}
+
 private fun Int.roundDownTo(alignment: Int): Int = this - (this % alignment)
 
 private const val MAX_PUBLISH_LONG_EDGE = 1080

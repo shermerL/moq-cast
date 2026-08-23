@@ -7,6 +7,16 @@ import org.junit.Test
 
 class PublishStatusFacadeTest {
     @Test
+    fun preparingSnapshotRetainsLanTargetForPermissionContinuation() {
+        val facade = PublishStatusFacade()
+
+        facade.prepare(PublishTarget.Lan)
+
+        assertEquals(PublishState.Preparing, facade.snapshot.value.state)
+        assertEquals(PublishTarget.Lan, facade.snapshot.value.target)
+    }
+
+    @Test
     fun terminalStateClearsPublishTarget() {
         val facade = PublishStatusFacade()
         facade.prepare(PublishTarget.Lan)
