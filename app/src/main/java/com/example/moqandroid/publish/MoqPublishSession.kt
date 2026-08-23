@@ -16,10 +16,11 @@ import uniffi.moq.MoqAudioProducer
 import uniffi.moq.MoqBroadcastProducer
 import uniffi.moq.MoqClient
 import uniffi.moq.MoqDimensions
-import uniffi.moq.MoqInit
 import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
 import uniffi.moq.MoqTrackProducer
+import uniffi.moq.MoqVideoFormat
+import uniffi.moq.MoqVideoInit
 import uniffi.moq.MoqVideoProperties
 
 internal class MoqPublishSession(
@@ -84,8 +85,8 @@ internal class MoqPublishSession(
         audioSource: AudioPublishSource?,
     ) {
         val timeline = PublishTimeline()
-        val media = broadcast.publishMedia(
-            MoqInit(format = "avc3", data = byteArrayOf(), video = null),
+        val media = broadcast.publishVideo(
+            MoqVideoInit(format = MoqVideoFormat.AVC3, data = byteArrayOf()),
         )
         var videoLayout: MoqTrackProducer? = null
         var audio: MoqAudioProducer? = null
@@ -121,7 +122,7 @@ internal class MoqPublishSession(
                         "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
                         "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
                 )
-                broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
+                broadcast.encodeAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
             }
 
             coroutineScope {

@@ -38,7 +38,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/moq-ffi-0.3.8-dev-request-path-android-arm64-v7a.aar"))
+    implementation(files("libs/moq-ffi-0.3.12-dev-android-arm64-v7a.aar"))
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.activity:activity-compose:1.10.1")

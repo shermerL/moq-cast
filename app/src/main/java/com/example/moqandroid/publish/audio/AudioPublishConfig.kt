@@ -4,7 +4,7 @@ import android.media.AudioFormat
 import uniffi.moq.MoqAudioCodec
 import uniffi.moq.MoqAudioEncoderInput
 import uniffi.moq.MoqAudioEncoderOutput
-import uniffi.moq.MoqAudioFormat
+import uniffi.moq.MoqAudioSampleFormat
 
 data class AudioPublishConfig(
     val sampleRate: Int = 48_000,
@@ -14,7 +14,7 @@ data class AudioPublishConfig(
 ) {
     fun encoderInput(): MoqAudioEncoderInput {
         return MoqAudioEncoderInput(
-            format = MoqAudioFormat.S16,
+            format = MoqAudioSampleFormat.S16,
             sampleRate = sampleRate.toUInt(),
             channels = channelCount.toUInt(),
         )
