@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.moqandroid"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.4.1-dev.1"
+        versionCode = 8
+        versionName = "0.4.1-dev.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

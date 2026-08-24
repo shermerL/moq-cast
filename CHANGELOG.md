@@ -10,6 +10,16 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.1-dev.2 (Debug) - 2026-08-24
+
+### 中文
+
+- 同步当前 MoQ 开发版 FFI 绑定，并适配更新后的局域网连接接口
+
+### English
+
+- Sync the current MoQ development FFI bindings and adapt to the updated LAN connection APIs
+
 ## 0.4.1-dev.1 (Debug) - 2026-08-23
 
 ### 中文
