@@ -10,6 +10,16 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.1-dev.3 (Debug) - 2026-08-26
+
+### 中文
+
+- 修复局域网 Mesh 的直连媒体路由
+
+### English
+
+- Fix direct-only media routing in LAN mesh
+
 ## 0.4.1-dev.2 (Debug) - 2026-08-24
 
 ### 中文
