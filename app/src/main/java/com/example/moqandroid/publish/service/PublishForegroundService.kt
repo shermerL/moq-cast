@@ -138,9 +138,9 @@ class PublishForegroundService : Service() {
             if (generation != publishGeneration) return@launch
 
             val lanPublishLease = claimLanPublishLease(intent, sourceType)
-            val sharedOrigin = lanPublishLease?.origin()
+            val localPublishOrigin = lanPublishLease?.localPublishOrigin()
             try {
-                if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
+                if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && localPublishOrigin == null) {
                     statusFacade.fail(generation, "The LAN mesh publish reservation is no longer available.")
                     return@launch
                 }
@@ -151,7 +151,7 @@ class PublishForegroundService : Service() {
                             intent,
                             relayUrl,
                             broadcastName,
-                            sharedOrigin,
+                            localPublishOrigin,
                             generation,
                         )
                     }
@@ -177,7 +177,7 @@ class PublishForegroundService : Service() {
         intent: Intent,
         relayUrl: String,
         broadcastName: String,
-        sharedOrigin: MoqOriginProducer?,
+        localPublishOrigin: MoqOriginProducer?,
         generation: Long,
     ) {
         val resultData = intent.projectionResultData()
@@ -208,7 +208,7 @@ class PublishForegroundService : Service() {
                 relayUrl = relayUrl,
                 tlsFingerprints = intent.getStringExtra(EXTRA_TLS_FINGERPRINT)?.let(::listOf).orEmpty(),
                 connectionLabel = intent.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl,
-                sharedOrigin = sharedOrigin,
+                publishOrigin = localPublishOrigin,
                 lifecycle = statusFacade.eventSink(generation),
             ).publish(
                 source = ScreenPublishSource(

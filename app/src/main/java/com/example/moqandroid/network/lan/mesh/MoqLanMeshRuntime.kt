@@ -148,17 +148,17 @@ class MoqLanMeshRuntime(
             updatePeerState(peer.id, generation, PeerConnectionState.Failed(error.message ?: "Invalid peer endpoint."))
             return
         }
-        val origin = server.origin()
-        if (origin == null) {
-            updatePeerState(peer.id, generation, PeerConnectionState.Failed("LAN origin is not ready."))
+        val origins = server.sessionOrigins()
+        if (origins == null) {
+            updatePeerState(peer.id, generation, PeerConnectionState.Failed("LAN media origins are not ready."))
             return
         }
 
         try {
             MoqClient().use { client ->
                 client.setTlsFingerprints(listOf(target.fingerprint))
-                client.setPublish(origin)
-                client.setConsume(origin)
+                client.setPublish(origins.publishOrigin)
+                client.setConsume(origins.consumeOrigin)
                 client.setReconnect(true)
                 client.connect(target.url).use { session ->
                     while (currentCoroutineContext().isActive) {

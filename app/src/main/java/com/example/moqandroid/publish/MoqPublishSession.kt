@@ -27,7 +27,7 @@ internal class MoqPublishSession(
     private val relayUrl: String,
     private val tlsFingerprints: List<String> = emptyList(),
     private val connectionLabel: String = relayUrl,
-    private val sharedOrigin: MoqOriginProducer? = null,
+    private val publishOrigin: MoqOriginProducer? = null,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
     suspend fun publish(
@@ -53,7 +53,7 @@ internal class MoqPublishSession(
         publish: suspend (MoqBroadcastProducer) -> Unit,
     ) {
         lifecycle.update(PublisherState.Preparing)
-        sharedOrigin?.let { origin ->
+        publishOrigin?.let { origin ->
             lifecycle.update(PublisherState.Connecting(connectionLabel, broadcastName))
             origin.createBroadcast(broadcastName).use { broadcast -> publish(broadcast) }
             lifecycle.update(PublisherState.Stopped)
