@@ -4,6 +4,8 @@ import com.example.moqandroid.network.lan.discovery.DiscoveredPeer
 import com.example.moqandroid.network.lan.mesh.PeerConnectionState
 import com.example.moqandroid.network.lan.mesh.RemoteScreenBroadcast
 import com.example.moqandroid.network.lan.mesh.ScreenBroadcastAvailability
+import com.example.moqandroid.network.lan.server.PeerListenerState
+import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishTarget
 import org.junit.Assert.assertEquals
@@ -111,19 +113,19 @@ class NearbyStateTest {
     }
 
     @Test
-    fun inboundRoleCanShareWithoutAThirdOutboundPeer() {
+    fun listeningServerCanShareBeforeAnyViewerConnects() {
         assertTrue(
-            NearbyActionPolicy.canReachPeer(
-                connections = listOf(PeerConnectionState.Waiting),
-                activeInboundSessionCount = 1,
+            NearbyActionPolicy.canStartScreenPublish(
+                PeerServerState(
+                    lifecycle = PeerListenerState.Listening("local", 4443),
+                    activeSessionCount = 0,
+                ),
             ),
         )
         assertFalse(
-            NearbyActionPolicy.canReachPeer(
-                connections = listOf(PeerConnectionState.Waiting),
-                activeInboundSessionCount = 0,
-            ),
+            NearbyActionPolicy.canStartScreenPublish(PeerServerState(PeerListenerState.Starting)),
         )
+        assertFalse(NearbyActionPolicy.canStartScreenPublish(PeerServerState()))
     }
 
     @Test
@@ -145,7 +147,7 @@ class NearbyStateTest {
     fun mediaLifecycleExposesOneValidActionSetPerPhase() {
         val idle = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.ConnectedIdle,
-            canReachPeer = true,
+            screenPublishReady = true,
             screenAvailable = true,
         )
         assertTrue(idle.canShareScreen)
@@ -155,7 +157,7 @@ class NearbyStateTest {
 
         val preparing = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.PreparingScreen,
-            canReachPeer = true,
+            screenPublishReady = true,
             screenAvailable = true,
         )
         assertFalse(preparing.canShareScreen)
@@ -165,7 +167,7 @@ class NearbyStateTest {
 
         val publishing = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.PublishingScreen,
-            canReachPeer = true,
+            screenPublishReady = true,
             screenAvailable = true,
         )
         assertFalse(publishing.canShareScreen)
@@ -175,7 +177,7 @@ class NearbyStateTest {
 
         val viewing = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.ViewingRemote("peer-a"),
-            canReachPeer = true,
+            screenPublishReady = true,
             screenAvailable = true,
         )
         assertFalse(viewing.canShareScreen)
@@ -185,7 +187,7 @@ class NearbyStateTest {
 
         val stopping = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.StoppingScreen,
-            canReachPeer = true,
+            screenPublishReady = true,
             screenAvailable = true,
         )
         assertFalse(stopping.canShareScreen)
@@ -218,10 +220,10 @@ class NearbyStateTest {
     }
 
     @Test
-    fun unavailableTransportDisablesGlobalShareButNotDirectoryState() {
+    fun unavailableLocalPublisherDisablesGlobalShareButNotDirectoryState() {
         val actions = NearbyActionPolicy.project(
             mediaState = NearbyMediaState.ConnectedIdle,
-            canReachPeer = false,
+            screenPublishReady = false,
             screenAvailable = true,
         )
 
