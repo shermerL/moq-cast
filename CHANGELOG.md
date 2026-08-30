@@ -10,6 +10,16 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.1-dev.4 (Debug) - 2026-08-30
+
+### 中文
+
+- 改进停止屏幕共享时的资源清理和状态同步
+
+### English
+
+- Improve resource cleanup and state synchronization when stopping screen sharing
+
 ## 0.4.1-dev.3 (Debug) - 2026-08-26
 
 ### 中文
