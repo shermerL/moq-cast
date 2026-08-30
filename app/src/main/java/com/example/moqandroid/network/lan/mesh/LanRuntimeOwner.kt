@@ -26,7 +26,7 @@ class LanRuntimeOwner(context: Context) {
 
     fun reservePublish(): PublishReservation? {
         val id = mutate { leases.reservePublish() }
-        if (LanMeshOriginRegistry.current() == null) {
+        if (LanMeshOriginRegistry.currentLocalPublishOrigin() == null) {
             cancelReservation(id)
             return null
         }
@@ -58,8 +58,8 @@ class LanRuntimeOwner(context: Context) {
         mutate { leases.releasePublish(id) }
     }
 
-    private fun origin(id: Long): MoqOriginProducer? = synchronized(lock) {
-        if (leases.isPublishing(id)) LanMeshOriginRegistry.current() else null
+    private fun localPublishOrigin(id: Long): MoqOriginProducer? = synchronized(lock) {
+        if (leases.isPublishing(id)) LanMeshOriginRegistry.currentLocalPublishOrigin() else null
     }
 
     private inline fun <T> mutate(action: () -> T): T = synchronized(lock) {
@@ -104,7 +104,7 @@ class LanRuntimeOwner(context: Context) {
     ) : AutoCloseable {
         private val closed = AtomicBoolean()
 
-        fun origin(): MoqOriginProducer? = if (closed.get()) null else owner.origin(id)
+        fun localPublishOrigin(): MoqOriginProducer? = if (closed.get()) null else owner.localPublishOrigin(id)
 
         override fun close() {
             if (closed.compareAndSet(false, true)) owner.releasePublish(id)

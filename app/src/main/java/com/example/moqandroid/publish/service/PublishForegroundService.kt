@@ -52,7 +52,7 @@ import uniffi.moq.MoqOriginProducer
 
 class PublishForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var publishJob: Job? = null
+    private val publishJobs = PublishJobLifecycle()
     private var publishGeneration = 0L
 
     override fun onCreate() {
@@ -132,15 +132,15 @@ class PublishForegroundService : Service() {
             return
         }
 
-        val previousJob = publishJob
+        val previousJob = publishJobs.current
         val nextJob = serviceScope.launch(start = CoroutineStart.LAZY) {
             previousJob?.cancelAndJoin()
             if (generation != publishGeneration) return@launch
 
             val lanPublishLease = claimLanPublishLease(intent, sourceType)
-            val sharedOrigin = lanPublishLease?.origin()
+            val localPublishOrigin = lanPublishLease?.localPublishOrigin()
             try {
-                if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && sharedOrigin == null) {
+                if (intent.getBooleanExtra(EXTRA_LAN_MESH, false) && localPublishOrigin == null) {
                     statusFacade.fail(generation, "The LAN mesh publish reservation is no longer available.")
                     return@launch
                 }
@@ -151,14 +151,13 @@ class PublishForegroundService : Service() {
                             intent,
                             relayUrl,
                             broadcastName,
-                            sharedOrigin,
+                            localPublishOrigin,
                             generation,
                         )
                     }
                 }.onFailure { error ->
                     if (error is CancellationException) {
                         Log.i(LOG_TAG, "publish cancelled source=${sourceType.storageValue}: ${error.message}")
-                        statusFacade.markStopped(generation)
                     } else {
                         Log.w(LOG_TAG, "publish failed source=${sourceType.storageValue}", error)
                         statusFacade.fail(generation, error.message ?: error::class.java.name)
@@ -166,10 +165,11 @@ class PublishForegroundService : Service() {
                 }
             } finally {
                 lanPublishLease?.close()
+                statusFacade.markStopped(generation)
                 if (generation == publishGeneration) stopSelf()
             }
         }
-        publishJob = nextJob
+        publishJobs.replace(nextJob)
         nextJob.start()
     }
 
@@ -177,7 +177,7 @@ class PublishForegroundService : Service() {
         intent: Intent,
         relayUrl: String,
         broadcastName: String,
-        sharedOrigin: MoqOriginProducer?,
+        localPublishOrigin: MoqOriginProducer?,
         generation: Long,
     ) {
         val resultData = intent.projectionResultData()
@@ -208,7 +208,7 @@ class PublishForegroundService : Service() {
                 relayUrl = relayUrl,
                 tlsFingerprints = intent.getStringExtra(EXTRA_TLS_FINGERPRINT)?.let(::listOf).orEmpty(),
                 connectionLabel = intent.getStringExtra(EXTRA_CONNECTION_LABEL) ?: relayUrl,
-                sharedOrigin = sharedOrigin,
+                publishOrigin = localPublishOrigin,
                 lifecycle = statusFacade.eventSink(generation),
             ).publish(
                 source = ScreenPublishSource(
@@ -284,14 +284,17 @@ class PublishForegroundService : Service() {
         val generation = publishGeneration
         publishGeneration += 1
         statusFacade.requestStop(generation)
-        cancelPublishJob()
-        if (updateStopped) statusFacade.markStopped(generation)
+        if (updateStopped) {
+            publishJobs.cancelAndNotify {
+                Log.i(LOG_TAG, "publish teardown complete generation=$generation")
+                statusFacade.markStopped(generation)
+            }
+        } else {
+            publishJobs.cancel()
+        }
     }
 
-    private fun cancelPublishJob() {
-        publishJob?.cancel(CancellationException("Publish stopped."))
-        publishJob = null
-    }
+    private fun cancelPublishJob() = publishJobs.cancel()
 
     private fun startForegroundService(
         relayUrl: String,

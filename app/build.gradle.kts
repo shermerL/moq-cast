@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.moqandroid"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.4.1-dev.1"
+        versionCode = 10
+        versionName = "0.4.1-dev.4"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -38,7 +38,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/moq-ffi-0.3.8-dev-request-path-android-arm64-v7a.aar"))
+    implementation(files("libs/moq-ffi-0.3.12-dev-android-arm64-v7a.aar"))
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.activity:activity-compose:1.10.1")

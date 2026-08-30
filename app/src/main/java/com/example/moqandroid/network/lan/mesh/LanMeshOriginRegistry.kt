@@ -2,18 +2,18 @@ package com.example.moqandroid.network.lan.mesh
 
 import uniffi.moq.MoqOriginProducer
 
-/** Shares the active LAN mesh origin with the publishing foreground service. */
+/** Shares only the active local LAN publish origin with the foreground service. */
 object LanMeshOriginRegistry {
     private val lock = Any()
-    private var origin: MoqOriginProducer? = null
+    private var localPublishOrigin: MoqOriginProducer? = null
 
-    fun attach(value: MoqOriginProducer) = synchronized(lock) {
-        origin = value
+    fun attachLocalPublishOrigin(value: MoqOriginProducer) = synchronized(lock) {
+        localPublishOrigin = value
     }
 
-    fun detach(value: MoqOriginProducer) = synchronized(lock) {
-        if (origin === value) origin = null
+    fun detachLocalPublishOrigin(value: MoqOriginProducer) = synchronized(lock) {
+        if (localPublishOrigin === value) localPublishOrigin = null
     }
 
-    fun current(): MoqOriginProducer? = synchronized(lock) { origin }
+    fun currentLocalPublishOrigin(): MoqOriginProducer? = synchronized(lock) { localPublishOrigin }
 }

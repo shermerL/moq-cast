@@ -1,7 +1,7 @@
 package com.example.moqandroid.ui.nearby
 
 import com.example.moqandroid.network.lan.discovery.DiscoveryPhase
-import com.example.moqandroid.network.lan.mesh.PeerConnectionState
+import com.example.moqandroid.network.lan.server.PeerListenerState
 import com.example.moqandroid.network.lan.server.PeerServerState
 import com.example.moqandroid.publish.PublishState
 import com.example.moqandroid.publish.PublishTarget
@@ -83,17 +83,16 @@ data class NearbyActionAvailability(
 
 /** Projects media lifecycle and transport facts into actions the Nearby UI may expose. */
 object NearbyActionPolicy {
-    fun canReachPeer(
-        connections: Collection<PeerConnectionState>,
-        activeInboundSessionCount: Int,
-    ): Boolean = connections.any { it == PeerConnectionState.Connected } || activeInboundSessionCount > 0
+    /** The local publish origin is ready with the listener; viewers may connect afterwards. */
+    fun canStartScreenPublish(serverState: PeerServerState): Boolean =
+        serverState.lifecycle is PeerListenerState.Listening
 
     fun project(
         mediaState: NearbyMediaState,
-        canReachPeer: Boolean,
+        screenPublishReady: Boolean,
         screenAvailable: Boolean,
     ): NearbyActionAvailability = NearbyActionAvailability(
-        canShareScreen = mediaState == NearbyMediaState.ConnectedIdle && canReachPeer,
+        canShareScreen = mediaState == NearbyMediaState.ConnectedIdle && screenPublishReady,
         canWatch = mediaState == NearbyMediaState.ConnectedIdle && screenAvailable,
         canOpenActiveSession = mediaState is NearbyMediaState.ViewingRemote,
         canStop = mediaState == NearbyMediaState.PreparingScreen ||

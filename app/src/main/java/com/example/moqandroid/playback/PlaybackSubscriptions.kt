@@ -19,13 +19,13 @@ class PlaybackSubscriptionManager(private val logTag: String) {
         val media = broadcast.subscribeMedia(
             video.name,
             video.video.container,
-            MoqSubscription(latencyMaxMs = 250uL),
+            MoqSubscription(maxAgeMs = 250uL),
         )
         val audioSubscription = audio?.let { track ->
             val clock = AudioPlaybackClock(track.sampleRate)
             when (track.decoderBackend) {
                 AudioDecoderBackend.MoqNativeOpus -> DecodedOpusSubscription(
-                    consumer = broadcast.subscribeAudio(
+                    consumer = broadcast.decodeAudio(
                         track.name,
                         track.audio,
                         track.decoderOutput(),
@@ -36,7 +36,7 @@ class PlaybackSubscriptionManager(private val logTag: String) {
                     consumer = broadcast.subscribeMedia(
                         track.name,
                         track.audio.container,
-                        MoqSubscription(latencyMaxMs = 250uL),
+                        MoqSubscription(maxAgeMs = 250uL),
                     ),
                     clock = clock,
                 )

@@ -8,6 +8,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -37,7 +39,7 @@ class MoqPeerServer(
     private var serverJob: Job? = null
     private var restartAfterStop = false
     private var server: MoqServer? = null
-    private var receiveOrigin: MoqOriginProducer? = null
+    private val mediaOrigins = PeerMediaOrigins<MoqOriginProducer>()
     private val stateTracker = PeerServerStateTracker()
 
     val state: StateFlow<PeerServerState> = mutableState.asStateFlow()
@@ -76,9 +78,13 @@ class MoqPeerServer(
         publishState(stateTracker.stop())
     }
 
-    fun consume(): MoqOriginConsumer? = synchronized(resourceLock) { receiveOrigin?.consume() }
+    fun consume(): MoqOriginConsumer? = synchronized(resourceLock) {
+        mediaOrigins.remoteReceiveOrigin()?.consume()
+    }
 
-    fun origin(): MoqOriginProducer? = synchronized(resourceLock) { receiveOrigin }
+    internal fun sessionOrigins(): PeerSessionOrigins<MoqOriginProducer>? = synchronized(resourceLock) {
+        mediaOrigins.session()
+    }
 
     private suspend fun runServer() {
         currentCoroutineContext().ensureActive()
@@ -88,105 +94,122 @@ class MoqPeerServer(
         publishState(listenerGeneration.state)
         Log.i(LOG_TAG, "LAN listener event=starting generation=${listenerGeneration.generation}")
         try {
-            MoqOriginProducer(MoqOriginOptions()).use { origin ->
-                LanMeshOriginRegistry.attach(origin)
-                MoqServer().use { listener ->
+            MoqOriginProducer(MoqOriginOptions()).use { localPublishOrigin ->
+                val remoteReceiveOrigin = MoqOriginProducer(MoqOriginOptions())
+                try {
                     synchronized(resourceLock) {
-                        receiveOrigin = origin
-                        server = listener
+                        mediaOrigins.attach(localPublishOrigin, remoteReceiveOrigin)
                     }
-                    listener.setBind("[::]:0")
-                    listener.setTlsGenerate(listOf("moqcast-lan"))
-                    listener.setPublish(origin)
-                    listener.setConsume(origin)
-                    val localAddress = listener.listen()
-                    val port = localAddress.substringAfterLast(':').toInt()
-                    val fingerprint = listener.certFingerprints().firstOrNull()
-                        ?: error("The MoQ server did not generate a TLS fingerprint.")
+                    LanMeshOriginRegistry.attachLocalPublishOrigin(localPublishOrigin)
+                    MoqServer().use { listener ->
+                        synchronized(resourceLock) {
+                            server = listener
+                        }
+                        listener.setBind("[::]:0")
+                        listener.setTlsGenerate(listOf("moqcast-lan"))
+                        listener.setPublish(localPublishOrigin)
+                        listener.setConsume(remoteReceiveOrigin)
+                        val localAddress = listener.listen()
+                        val port = localAddress.substringAfterLast(':').toInt()
+                        val fingerprint = listener.certFingerprints().firstOrNull()
+                            ?: error("The MoQ server did not generate a TLS fingerprint.")
 
-                    withContext(Dispatchers.Main.immediate) {
-                        advertiser.register(
-                            serviceName = instance,
-                            port = port,
-                            fingerprint = fingerprint,
-                            credential = credential,
-                            onRegistered = { registeredName ->
-                                val registered = stateTracker.listener(
-                                    listenerGeneration.generation,
-                                    PeerListenerState.Listening(registeredName, port),
-                                )
-                                if (registered != null) {
-                                    publishState(registered)
-                                    Log.i(
-                                        LOG_TAG,
-                                        "LAN listener event=listening generation=${listenerGeneration.generation} " +
-                                            "service=$registeredName port=$port",
+                        withContext(Dispatchers.Main.immediate) {
+                            advertiser.register(
+                                serviceName = instance,
+                                port = port,
+                                fingerprint = fingerprint,
+                                credential = credential,
+                                onRegistered = { registeredName ->
+                                    val registered = stateTracker.listener(
+                                        listenerGeneration.generation,
+                                        PeerListenerState.Listening(registeredName, port),
                                     )
-                                }
-                            },
-                            onFailure = { code ->
-                                val failed = stateTracker.listener(
-                                    listenerGeneration.generation,
-                                    PeerListenerState.Failed("mDNS registration failed ($code)."),
-                                )
-                                publishState(failed)
-                                listener.cancel()
-                            },
-                        )
-                    }
+                                    if (registered != null) {
+                                        publishState(registered)
+                                        Log.i(
+                                            LOG_TAG,
+                                            "LAN listener event=listening generation=${listenerGeneration.generation} " +
+                                                "service=$registeredName port=$port",
+                                        )
+                                    }
+                                },
+                                onFailure = { code ->
+                                    val failed = stateTracker.listener(
+                                        listenerGeneration.generation,
+                                        PeerListenerState.Failed("mDNS registration failed ($code)."),
+                                    )
+                                    publishState(failed)
+                                    listener.cancel()
+                                },
+                            )
+                        }
 
-                    val broadcastJob = scope.launch(Dispatchers.IO) {
-                        val routeJobs = linkedMapOf<String, Job>()
-                        origin.consume().use { consumer ->
-                            consumer.announced("").use { announcements ->
-                                try {
-                                    while (isActive) {
-                                        val announcement = announcements.next() ?: break
-                                        announcement.use {
-                                            val path = announcement.path()
-                                            val screen = broadcastDirectory.available(path, mutableState.value.serviceName())
-                                                ?: return@use
-                                            routeJobs.remove(path)?.cancel()
-                                            val broadcast = announcement.broadcast()
-                                            routeJobs[path] = launch {
-                                                broadcast.use {
-                                                    try {
-                                                        val routes = broadcast.routeUpdates()
-                                                        routes.use {
-                                                            while (isActive) {
-                                                                val route = routes.next() ?: break
-                                                                if (!route.announce) break
+                        val broadcastJob = scope.launch(Dispatchers.IO) {
+                            val routeJobs = linkedMapOf<String, Job>()
+                            remoteReceiveOrigin.consume().use { consumer ->
+                                consumer.announced("").use { announcements ->
+                                    try {
+                                        while (isActive) {
+                                            val announcement = announcements.next() ?: break
+                                            announcement.use {
+                                                val path = announcement.path()
+                                                val screen = broadcastDirectory.available(
+                                                    path,
+                                                    mutableState.value.serviceName(),
+                                                ) ?: return@use
+                                                routeJobs.remove(path)?.cancel()
+                                                val broadcast = announcement.broadcast()
+                                                routeJobs[path] = launch {
+                                                    broadcast.use {
+                                                        try {
+                                                            val routes = broadcast.routeUpdates()
+                                                            routes.use {
+                                                                while (isActive) {
+                                                                    val route = routes.next() ?: break
+                                                                    if (!route.announce) break
+                                                                }
                                                             }
+                                                        } finally {
+                                                            broadcastDirectory.withdrawn(screen)
+                                                            Log.i(
+                                                                LOG_TAG,
+                                                                "LAN broadcast event=withdrawn path=$path " +
+                                                                    "revision=${screen.revision}",
+                                                            )
                                                         }
-                                                    } finally {
-                                                        broadcastDirectory.withdrawn(screen)
-                                                        Log.i(
-                                                            LOG_TAG,
-                                                            "LAN broadcast event=withdrawn path=$path revision=${screen.revision}",
-                                                        )
                                                     }
                                                 }
+                                                Log.i(
+                                                    LOG_TAG,
+                                                    "LAN broadcast event=available path=${screen.path} " +
+                                                        "publisher=${screen.publisherId} revision=${screen.revision}",
+                                                )
                                             }
-                                            Log.i(
-                                                LOG_TAG,
-                                                "LAN broadcast event=available path=${screen.path} " +
-                                                    "publisher=${screen.publisherId} revision=${screen.revision}",
-                                            )
                                         }
+                                    } finally {
+                                        routeJobs.values.forEach(Job::cancel)
+                                        routeJobs.clear()
                                     }
-                                } finally {
-                                    routeJobs.values.forEach(Job::cancel)
-                                    routeJobs.clear()
                                 }
                             }
                         }
-                    }
 
-                    try {
-                        acceptLoop(listener, credential, listenerGeneration.generation)
-                    } finally {
-                        broadcastJob.cancel()
+                        try {
+                            acceptLoop(listener, credential, listenerGeneration.generation)
+                        } finally {
+                            withContext(NonCancellable) {
+                                broadcastJob.cancelAndJoin()
+                            }
+                        }
                     }
+                } finally {
+                    LanMeshOriginRegistry.detachLocalPublishOrigin(localPublishOrigin)
+                    synchronized(resourceLock) {
+                        server = null
+                        mediaOrigins.detach(localPublishOrigin, remoteReceiveOrigin)
+                    }
+                    remoteReceiveOrigin.close()
                 }
             }
         } catch (error: CancellationException) {
@@ -202,11 +225,6 @@ class MoqPeerServer(
         } finally {
             advertiser.unregister()
             broadcastDirectory.reset()
-            synchronized(resourceLock) {
-                receiveOrigin?.let(LanMeshOriginRegistry::detach)
-                server = null
-                receiveOrigin = null
-            }
             publishState(stateTracker.finish(listenerGeneration.generation))
         }
     }

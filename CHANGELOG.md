@@ -10,6 +10,36 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.4.1-dev.4 (Debug) - 2026-08-30
+
+### 中文
+
+- 改进停止屏幕共享时的资源清理和状态同步
+
+### English
+
+- Improve resource cleanup and state synchronization when stopping screen sharing
+
+## 0.4.1-dev.3 (Debug) - 2026-08-26
+
+### 中文
+
+- 修复局域网 Mesh 的直连媒体路由
+
+### English
+
+- Fix direct-only media routing in LAN mesh
+
+## 0.4.1-dev.2 (Debug) - 2026-08-24
+
+### 中文
+
+- 同步当前 MoQ 开发版 FFI 绑定，并适配更新后的局域网连接接口
+
+### English
+
+- Sync the current MoQ development FFI bindings and adapt to the updated LAN connection APIs
+
 ## 0.4.1-dev.1 (Debug) - 2026-08-23
 
 ### 中文

@@ -9,7 +9,7 @@ import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 import uniffi.moq.MoqAudio
 import uniffi.moq.MoqAudioDecoderOutput
-import uniffi.moq.MoqAudioFormat
+import uniffi.moq.MoqAudioSampleFormat
 import uniffi.moq.MoqCatalog
 import uniffi.moq.MoqContainer
 import uniffi.moq.MoqDimensions
@@ -147,10 +147,10 @@ fun PlayableAudioTrack.decoderOutput(): MoqAudioDecoderOutput {
         "native PCM output is only available for Opus"
     }
     return MoqAudioDecoderOutput(
-        format = MoqAudioFormat.S16,
+        format = MoqAudioSampleFormat.S16,
         sampleRate = sampleRate.toUInt(),
         channels = channelCount.toUInt(),
-        latencyMaxMs = 250uL,
+        maxAgeMs = 250uL,
     )
 }
 

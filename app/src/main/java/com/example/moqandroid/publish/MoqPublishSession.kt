@@ -16,17 +16,18 @@ import uniffi.moq.MoqAudioProducer
 import uniffi.moq.MoqBroadcastProducer
 import uniffi.moq.MoqClient
 import uniffi.moq.MoqDimensions
-import uniffi.moq.MoqInit
 import uniffi.moq.MoqOriginOptions
 import uniffi.moq.MoqOriginProducer
 import uniffi.moq.MoqTrackProducer
+import uniffi.moq.MoqVideoFormat
+import uniffi.moq.MoqVideoInit
 import uniffi.moq.MoqVideoProperties
 
 internal class MoqPublishSession(
     private val relayUrl: String,
     private val tlsFingerprints: List<String> = emptyList(),
     private val connectionLabel: String = relayUrl,
-    private val sharedOrigin: MoqOriginProducer? = null,
+    private val publishOrigin: MoqOriginProducer? = null,
     private val lifecycle: PublisherLifecycleEventSink,
 ) {
     suspend fun publish(
@@ -52,7 +53,7 @@ internal class MoqPublishSession(
         publish: suspend (MoqBroadcastProducer) -> Unit,
     ) {
         lifecycle.update(PublisherState.Preparing)
-        sharedOrigin?.let { origin ->
+        publishOrigin?.let { origin ->
             lifecycle.update(PublisherState.Connecting(connectionLabel, broadcastName))
             origin.createBroadcast(broadcastName).use { broadcast -> publish(broadcast) }
             lifecycle.update(PublisherState.Stopped)
@@ -84,8 +85,8 @@ internal class MoqPublishSession(
         audioSource: AudioPublishSource?,
     ) {
         val timeline = PublishTimeline()
-        val media = broadcast.publishMedia(
-            MoqInit(format = "avc3", data = byteArrayOf(), video = null),
+        val media = broadcast.publishVideo(
+            MoqVideoInit(format = MoqVideoFormat.AVC3, data = byteArrayOf()),
         )
         var videoLayout: MoqTrackProducer? = null
         var audio: MoqAudioProducer? = null
@@ -121,7 +122,7 @@ internal class MoqPublishSession(
                         "sampleRate=${audioConfig.sampleRate} channels=${audioConfig.channelCount} " +
                         "bitrate=${audioConfig.bitrate} frameDurationMs=${audioConfig.frameDurationMs}",
                 )
-                broadcast.publishAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
+                broadcast.encodeAudio("0", audioConfig.encoderInput(), audioConfig.encoderOutput())
             }
 
             coroutineScope {

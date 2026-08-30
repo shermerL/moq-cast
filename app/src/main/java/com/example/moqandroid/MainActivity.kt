@@ -156,10 +156,7 @@ class MainActivity : ComponentActivity(), PlayerSurfaceListener {
                             errorCode = nearbyDiscoveryState.errorCode,
                             serverState = nearbyServerState,
                             mediaState = viewModel.nearbyMediaState,
-                            canShareScreen = NearbyActionPolicy.canReachPeer(
-                                connections = nearbyPeerItems.map { it.connectionState },
-                                activeInboundSessionCount = nearbyServerState.activeSessionCount,
-                            ),
+                            canShareScreen = NearbyActionPolicy.canStartScreenPublish(nearbyServerState),
                             includeSystemAudio = viewModel.nearbyIncludeSystemAudio,
                             systemAudioSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
                         ),
