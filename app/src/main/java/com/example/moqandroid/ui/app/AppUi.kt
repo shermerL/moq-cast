@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.moqandroid.BuildConfig
 import com.example.moqandroid.R
 import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.playback.PlaybackRendererMode
@@ -260,7 +261,7 @@ private fun SettingsPanel(
                 StaticSettingRow(
                     label = stringResource(R.string.about_app_label),
                     note = stringResource(R.string.about_app_note),
-                    pill = stringResource(R.string.about_version),
+                    pill = BuildConfig.VERSION_NAME,
                 )
             }
 
