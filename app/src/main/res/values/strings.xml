@@ -56,12 +56,11 @@
     <string name="stop_publish">Stop publish</string>
     <string name="subscribe_action">Subscribe</string>
     <string name="general_section">General</string>
+    <string name="lan_mesh_section">LAN Mesh</string>
     <string name="publish_section">Video encoding</string>
-    <string name="connection_section">Connection</string>
+    <string name="relay_section">Relay</string>
     <string name="nearby_title">Nearby devices</string>
-    <string name="nearby_settings_note">Discover and share with MoQ peers on a trusted local network.</string>
     <string name="lan_mesh_enabled">Keep LAN mesh active</string>
-    <string name="lan_mesh_enabled_note">Stay discoverable and connected to nearby MoQ peers until this is turned off.</string>
     <string name="nearby_devices">Devices</string>
     <string name="refresh">Refresh</string>
     <string name="nearby_idle">Discovery stopped</string>
@@ -140,10 +139,9 @@
     <string name="system_audio_on">on</string>
     <string name="system_audio_off">off</string>
     <string name="status_ready_title">Ready</string>
-    <string name="relay_url_note">Default relay for publish and subscribe.</string>
+    <string name="relay_url_placeholder">https://example.com/broadcast</string>
     <string name="about_app_label">MoQCast Android</string>
     <string name="about_app_note">Media over QUIC screen casting client.</string>
-    <string name="about_version">0.4.x</string>
     <string name="broadcast_empty">Broadcast name cannot be empty.</string>
     <string name="publish_stopped_by_user">Publish stopped.</string>
     <string name="screen_capture_permission_denied">Screen capture permission denied.</string>

@@ -30,16 +30,16 @@
 
 ## 已验证环境
 
-本项目当前使用以下版本组合完成 Android、Web 与 relay 服务器之间的发布、订阅互操作验证。
+本项目当前使用以下版本组合。Android 绑定跟随 `moq-ffi` dev branch，升级后的 Android、Web 与 relay 真机互操作仍待复验。
 
 ### Android 依赖
 
 以下依赖会直接打包进 Android APK：
 
-| 组件                         | 版本     | 用途                                |
-| ---------------------------- | -------- | ----------------------------------- |
-| `dev.moq:moq`                | `0.2.24` | Android 端 MoQ、Hang 和 UniFFI 绑定 |
-| `kotlinx-coroutines-android` | `1.9.0`  | Android 协程支持                    |
+| 组件                         | 版本         | 用途                                |
+| ---------------------------- | ------------ | ----------------------------------- |
+| `moq-ffi`                    | dev branch   | Android 端 MoQ、Hang 和 UniFFI 绑定 |
+| `kotlinx-coroutines-android` | `1.9.0`      | Android 协程支持                    |
 
 ### Web 依赖
 
@@ -96,7 +96,7 @@ relay URL 仅保存在应用自己的 `SharedPreferences` 中，仓库内不包�
 
 ## 项目结构
 
-底层 MoQ 网络能力由 `dev.moq:moq` 提供。该依赖包含 Rust 实现、UniFFI 生成的 Kotlin 接口以及 Android 原生动态库。应用层不需要直接编写 JNI 调用。
+底层 MoQ 网络能力由 `moq-ffi` dev branch 提供。该依赖包含 Rust 实现、UniFFI 生成的 Kotlin 接口以及 Android 原生动态库。应用层不需要直接编写 JNI 调用。
 
 ## 权限
 
@@ -123,10 +123,10 @@ relay URL 仅保存在应用自己的 `SharedPreferences` 中，仓库内不包�
 
 本项目使用 `moq-dev/moq` 提供的 Kotlin/Android 绑定：
 
-- Maven 坐标：`dev.moq:moq:0.2.24`
+- 上游来源：`moq-ffi` dev branch
 - 源码：[github.com/moq-dev/moq](https://github.com/moq-dev/moq)
 - 许可证：[Apache License 2.0](https://github.com/moq-dev/moq/blob/main/LICENSE-APACHE) 或 [MIT License](https://github.com/moq-dev/moq/blob/main/LICENSE-MIT)
 
-`dev.moq:moq` 包含 Rust 实现、UniFFI 生成的 Kotlin 接口以及 Android 原生动态库。本项目是独立开发的 Android 示例，基于 [moq-dev/moq](https://github.com/moq-dev/moq) 提供的 MoQ 实现和 Kotlin/Android 绑定。感谢 Luke Curley 及所有 `moq-dev` contributors 对 MoQ 协议实现、原生绑定和开源生态的持续投入。
+`moq-ffi` 包含 Rust 实现、UniFFI 生成的 Kotlin 接口以及 Android 原生动态库。本项目是独立开发的 Android 示例，基于 [moq-dev/moq](https://github.com/moq-dev/moq) 提供的 MoQ 实现和 Kotlin/Android 绑定。感谢 Luke Curley 及所有 `moq-dev` contributors 对 MoQ 协议实现、原生绑定和开源生态的持续投入。
 
 重新分发本项目源码或 APK 时，请同时保留 `moq-dev/moq` 的许可证和版权声明。

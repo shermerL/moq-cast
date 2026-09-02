@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.moqandroid.BuildConfig
 import com.example.moqandroid.R
 import com.example.moqandroid.config.AppLanguage
 import com.example.moqandroid.playback.PlaybackRendererMode
@@ -92,7 +93,7 @@ fun FirstRunConfig(
             LabeledField(
                 label = stringResource(R.string.relay_url_label),
                 value = state.relayUrl,
-                placeholder = "http://host:4443/anon",
+                placeholder = stringResource(R.string.relay_url_placeholder),
                 onValueChange = actions.onRelayUrlChange,
                 onSubmit = actions.onContinue,
             )
@@ -172,7 +173,6 @@ private fun SettingsPanel(
 ) {
     val lanMeshFocus = remember { FocusRequester() }
     val nearbyFocus = remember { FocusRequester() }
-    val relayUrlFocus = remember { FocusRequester() }
 
     ClearFocusOnEntry("relay-settings")
     Page {
@@ -198,6 +198,25 @@ private fun SettingsPanel(
                     label = stringResource(R.string.theme_label),
                     note = stringResource(R.string.theme_note),
                     pill = stringResource(R.string.theme_system),
+                )
+            }
+
+            MoqSettingSection(title = stringResource(R.string.lan_mesh_section)) {
+                ToggleSettingRow(
+                    label = stringResource(R.string.lan_mesh_enabled),
+                    checked = state.lanMeshEnabled,
+                    onCheckedChange = actions.onLanMeshEnabledChange,
+                    modifier = Modifier
+                        .focusRequester(lanMeshFocus)
+                        .focusProperties { down = nearbyFocus },
+                )
+                Spacer(Modifier.height(18.dp))
+                NavigationSettingRow(
+                    label = stringResource(R.string.nearby_title),
+                    onClick = actions.onOpenNearby,
+                    modifier = Modifier
+                        .focusRequester(nearbyFocus)
+                        .focusProperties { up = lanMeshFocus },
                 )
             }
 
@@ -231,35 +250,10 @@ private fun SettingsPanel(
                 )
             }
 
-            MoqSettingSection(title = stringResource(R.string.connection_section)) {
-                ToggleSettingRow(
-                    label = stringResource(R.string.lan_mesh_enabled),
-                    note = stringResource(R.string.lan_mesh_enabled_note),
-                    checked = state.lanMeshEnabled,
-                    onCheckedChange = actions.onLanMeshEnabledChange,
-                    modifier = Modifier
-                        .focusRequester(lanMeshFocus)
-                        .focusProperties { down = nearbyFocus },
-                )
-                Spacer(Modifier.height(18.dp))
-                NavigationSettingRow(
-                    label = stringResource(R.string.nearby_title),
-                    note = stringResource(R.string.nearby_settings_note),
-                    onClick = actions.onOpenNearby,
-                    modifier = Modifier
-                        .focusRequester(nearbyFocus)
-                        .focusProperties {
-                            up = lanMeshFocus
-                            down = relayUrlFocus
-                        },
-                )
-                Spacer(Modifier.height(18.dp))
+            MoqSettingSection(title = stringResource(R.string.relay_section)) {
                 RelayUrlSettingRow(
                     value = state.relayUrl,
                     onValueChange = actions.onRelayUrlChange,
-                    modifier = Modifier
-                        .focusRequester(relayUrlFocus)
-                        .focusProperties { up = nearbyFocus },
                 )
             }
 
@@ -267,7 +261,7 @@ private fun SettingsPanel(
                 StaticSettingRow(
                     label = stringResource(R.string.about_app_label),
                     note = stringResource(R.string.about_app_note),
-                    pill = stringResource(R.string.about_version),
+                    pill = BuildConfig.VERSION_NAME,
                 )
             }
 
@@ -281,7 +275,7 @@ private fun SettingsPanel(
 @Composable
 private fun NavigationSettingRow(
     label: String,
-    note: String,
+    note: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -385,7 +379,7 @@ private fun PillDropdown(
 @Composable
 private fun ToggleSettingRow(
     label: String,
-    note: String,
+    note: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -499,12 +493,12 @@ private fun RelayUrlSettingRow(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SettingRow(label = stringResource(R.string.relay_url_label), note = stringResource(R.string.relay_url_note)) {
+    SettingRow(label = stringResource(R.string.relay_url_label)) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            placeholder = { Text("http://host:4443/anon") },
+            placeholder = { Text(stringResource(R.string.relay_url_placeholder)) },
             shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = SurfaceMuted,
