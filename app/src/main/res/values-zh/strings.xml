@@ -56,12 +56,11 @@
     <string name="stop_publish">停止发布</string>
     <string name="subscribe_action">订阅</string>
     <string name="general_section">通用</string>
+    <string name="lan_mesh_section">局域网 Mesh</string>
     <string name="publish_section">视频编码</string>
-    <string name="connection_section">连接</string>
+    <string name="relay_section">Relay</string>
     <string name="nearby_title">附近设备</string>
-    <string name="nearby_settings_note">在受信任的局域网中发现 MoQ 设备并共享屏幕。</string>
     <string name="lan_mesh_enabled">保持局域网 Mesh 活跃</string>
-    <string name="lan_mesh_enabled_note">开启后持续发现并连接附近的 MoQ 设备，关闭后释放所有局域网连接。</string>
     <string name="nearby_devices">设备</string>
     <string name="refresh">刷新</string>
     <string name="nearby_idle">发现已停止</string>
@@ -140,7 +139,7 @@
     <string name="system_audio_on">on</string>
     <string name="system_audio_off">off</string>
     <string name="status_ready_title">就绪</string>
-    <string name="relay_url_note">发布和订阅使用的默认 relay。</string>
+    <string name="relay_url_placeholder">https://example.com/broadcast</string>
     <string name="about_app_label">MoQCast Android</string>
     <string name="about_app_note">Media over QUIC 屏幕投送客户端。</string>
     <string name="about_version">0.4.x</string>
