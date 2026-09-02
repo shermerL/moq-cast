@@ -10,6 +10,18 @@ This file documents notable changes for each project version.
 
 No changes yet.
 
+## 0.5.0-dev.1 (Debug) - 2026-09-03
+
+### 中文
+
+- 将局域网 Mesh 与 Relay 设置分组展示，便于分别配置
+- 调整 Relay 地址的示例提示与默认值
+
+### English
+
+- Organize LAN Mesh and Relay settings into separate sections
+- Update the example hint and default value for the Relay address
+
 ## 0.4.1-dev.4 (Debug) - 2026-08-30
 
 ### 中文
