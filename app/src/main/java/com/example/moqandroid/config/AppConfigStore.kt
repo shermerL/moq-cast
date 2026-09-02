@@ -4,8 +4,8 @@ import android.content.Context
 import com.example.moqandroid.playback.PlaybackRendererMode
 import com.example.moqandroid.publish.encoder.H264ProfilePreference
 
-// Optional default for local development. Leave empty to require setup on first launch.
-const val DEFAULT_RELAY_URL = ""
+// Documentation-only example used as an editable first-run value.
+const val DEFAULT_RELAY_URL = "https://example.com/broadcast"
 
 class AppConfigStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
