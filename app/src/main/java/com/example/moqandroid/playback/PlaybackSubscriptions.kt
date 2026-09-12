@@ -16,10 +16,12 @@ class PlaybackSubscriptionManager(private val logTag: String) {
     ): PlaybackSubscriptions {
         val video = trackInfo.video
         val audio = trackInfo.audio
+        val policy = PlaybackLatencyPolicy.forInitialTracks(audio != null)
+        Log.i(logTag, "playback subscription policy=$policy maxAgeMs=${policy.maxAgeMs}")
         val media = broadcast.subscribeMedia(
             video.name,
             video.video.container,
-            MoqSubscription(maxAgeMs = 250uL),
+            MoqSubscription(maxAgeMs = policy.maxAgeMs),
         )
         val audioSubscription = audio?.let { track ->
             val clock = AudioPlaybackClock(track.sampleRate)
@@ -28,7 +30,7 @@ class PlaybackSubscriptionManager(private val logTag: String) {
                     consumer = broadcast.decodeAudio(
                         track.name,
                         track.audio,
-                        track.decoderOutput(),
+                        track.decoderOutput(policy.maxAgeMs),
                     ),
                     clock = clock,
                 )
@@ -36,7 +38,7 @@ class PlaybackSubscriptionManager(private val logTag: String) {
                     consumer = broadcast.subscribeMedia(
                         track.name,
                         track.audio.container,
-                        MoqSubscription(maxAgeMs = 250uL),
+                        MoqSubscription(maxAgeMs = policy.maxAgeMs),
                     ),
                     clock = clock,
                 )
