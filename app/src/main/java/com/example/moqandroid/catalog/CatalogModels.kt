@@ -142,7 +142,7 @@ fun MoqAudio.toPlayableTrack(name: String): PlayableAudioTrack? {
     }
 }
 
-fun PlayableAudioTrack.decoderOutput(): MoqAudioDecoderOutput {
+fun PlayableAudioTrack.decoderOutput(maxAgeMs: ULong): MoqAudioDecoderOutput {
     check(decoderBackend == AudioDecoderBackend.MoqNativeOpus) {
         "native PCM output is only available for Opus"
     }
@@ -150,7 +150,7 @@ fun PlayableAudioTrack.decoderOutput(): MoqAudioDecoderOutput {
         format = MoqAudioSampleFormat.S16,
         sampleRate = sampleRate.toUInt(),
         channels = channelCount.toUInt(),
-        maxAgeMs = 250uL,
+        maxAgeMs = maxAgeMs,
     )
 }
 
